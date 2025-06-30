@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\BannerSwiper;
+use App\HomepageSetting;
 use Illuminate\Http\Request;
 
 class HomepageController extends Controller
@@ -13,9 +14,11 @@ class HomepageController extends Controller
     public function index()
     {
         $bannerSwiper = BannerSwiper::orderBy('ht_pos')->get();
+        $homepageSettings = HomepageSetting::first();
 
         return response()->json([
-            'bannerSwiper' => $bannerSwiper
+            'bannerSwiper' => $bannerSwiper,
+            'homepageSettings' => $homepageSettings
         ]);
     }
 

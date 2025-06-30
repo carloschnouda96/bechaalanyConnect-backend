@@ -23,7 +23,14 @@ class FixedSettingTranslation extends Model
 
     /* Start custom functions */
 
+    public $appends = ['full_path'];
 
+    public function getFullPathAttribute()
+    {
+        $logo = Storage::url($this->logo);
+        $dark_mode_logo = Storage::url($this->dark_mode_logo);
+        return compact('logo', 'dark_mode_logo');
+    }
 
     /* End custom functions */
 }
