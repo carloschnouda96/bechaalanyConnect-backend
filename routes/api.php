@@ -4,6 +4,9 @@ use App\Http\Controllers\GeneralController;
 use App\Http\Controllers\HomepageController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
+use App\Http\Controllers\auth\RegisteredUserController;
+use App\Http\Controllers\auth\SocialiteController;
+use App\Http\Controllers\SessionController;
 
 /*
 |--------------------------------------------------------------------------
@@ -20,8 +23,28 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
 
+//Google Login
+Route::get('redirect', [SocialiteController::class, 'redirect'])->name('redirect');
+Route::get('callback', [SocialiteController::class, 'callback'])->name('callback');
+
+//Register Routes
+Route::post('/register', [RegisteredUserController::class, 'store']);
+
+//Email Verification Routes
+Route::post('/verify-email', [RegisteredUserController::class, 'verifyEmail']);
+Route::post('/verify-email-send-new-code', [RegisteredUserController::class, 'verifyEmailSendNewCode']);
+
+//Login Routes
+Route::post('/login', [SessionController::class, 'store']);
+
+//Logout Routes
+Route::post('/logout', [SessionController::class, 'destroy']);
+
+//Password Reset Routes
+Route::post('/forgot-password', [RegisteredUserController::class, 'forgotPasswordSendEmail']);
+Route::post('/reset-password', [RegisteredUserController::class, 'resetPasswordSendEmail']);
+
 Route::middleware('locale')->prefix('{locale}')->group(function () {
     Route::get('/general', [GeneralController::class, 'index']);
     Route::get('/home', [HomepageController::class, 'index']);
-
 });
