@@ -34,7 +34,7 @@ class SessionController extends Controller
     {
         $user = Auth::user();
         if ($user) {
-            $user->tokens()->delete();
+            $user->tokens()->delete(); // deletes all tokens for the user
         }
         Auth::logout();
         return response()->json(['message' => 'Logged out successfully.'], 200);

@@ -24,7 +24,7 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 });
 
 //Google Login
-Route::get('redirect', [SocialiteController::class, 'redirect'])->name('redirect');
+Route::get('signin-with-google', [SocialiteController::class, 'redirect'])->name('redirect');
 Route::get('callback', [SocialiteController::class, 'callback'])->name('callback');
 
 //Register Routes
@@ -32,13 +32,14 @@ Route::post('/register', [RegisteredUserController::class, 'store']);
 
 //Email Verification Routes
 Route::post('/verify-email', [RegisteredUserController::class, 'verifyEmail']);
-Route::post('/verify-email-send-new-code', [RegisteredUserController::class, 'verifyEmailSendNewCode']);
+Route::post('/resend-verification-code', [RegisteredUserController::class, 'verifyEmailSendNewCode']);
 
 //Login Routes
 Route::post('/login', [SessionController::class, 'store']);
 
 //Logout Routes
-Route::post('/logout', [SessionController::class, 'destroy']);
+// Route::post('/logout', [SessionController::class, 'destroy']);
+Route::middleware('auth:sanctum')->post('/logout', [SessionController::class, 'destroy']);
 
 //Password Reset Routes
 Route::post('/forgot-password', [RegisteredUserController::class, 'forgotPasswordSendEmail']);

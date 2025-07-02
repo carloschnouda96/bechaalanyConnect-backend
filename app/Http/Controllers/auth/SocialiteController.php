@@ -2,19 +2,11 @@
 
 namespace App\Http\Controllers\auth;
 
-use App\GeneralSetting;
+
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use App\Providers\RouteServiceProvider;
-use Exception;
-use Illuminate\Auth\Events\Registered;
-use Illuminate\Http\RedirectResponse;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\Hash;
-use Illuminate\Support\Facades\Mail;
 use Laravel\Socialite\Facades\Socialite;
-use Illuminate\Support\Str;
+
 
 class SocialiteController extends Controller
 {
@@ -26,59 +18,33 @@ class SocialiteController extends Controller
 
     public function callback()
     {
+        $googleUser = Socialite::driver('google')->stateless()->user();
 
-        $user = Socialite::driver('google')->user();
+        $user = User::where('google_id', $googleUser->id)
+            ->orWhere('email', $googleUser->email)
+            ->first();
 
-        $existing_user = User::where('google_id', $user->id)->first();
-
-        $old_user = User::where('email', $user->email)->first();
-
-        $user_email = GeneralSetting::first()->verify_user_email;
-
-        if ($existing_user) {
-            Auth::login($existing_user);
-            $this->checkWorkoutPlan();
-            return redirect('/');
-        } else if ($old_user) {
-
-            $old_user->google_id = $user->id;
-            $old_user->email_verified = 1;
-            $old_user->update();
-
-            Auth::login($old_user);
-            $this->checkWorkoutPlan();
-            return redirect('/');
+        if ($user) {
+            // Link Google ID if not already linked
+            if (!$user->google_id) {
+                $user->google_id = $googleUser->id;
+                $user->email_verified = 1;
+                $user->save();
+            }
         } else {
-            $newUser = User::create([
-                'first_name' => $user->name,
-                'email' => $user->email,
-                'google_id' => $user->id,
-                'password' => encrypt('123456dummy'),
+            $user = User::create([
+                'username' => $googleUser->name,
+                'email' => $googleUser->email,
+                'google_id' => $googleUser->id,
+                'password' => bcrypt(str()->random(24)), // random password
                 'email_verified' => 1,
             ]);
-            Mail::send('emails.google-verify', compact('newUser', 'user_email'), function ($message) use ($newUser) {
-                $message->to($newUser['email'])->subject('Subscribe');
-            });
-            Auth::login($newUser);
-            return redirect('/');
         }
-    }
 
-    public function checkWorkoutPlan()
-    {
-        // Step 1: Retrieve current plans
-        $currentPlans = Auth::user()->user_plans->pluck('id')->toArray();
+        // Issue token for API
+        $token = $user->createToken('auth_token')->plainTextToken;
 
-        // Step 2: Retrieve the previous plans from session (if any)
-        $storedPlans = session('user_plans', []);
-
-        // Step 3: Compare plans and check if there are new plans added
-        $newPlans = array_diff($currentPlans, $storedPlans);
-
-        if (!empty($newPlans)) {
-            // Step 4: If there are new plans, flash a message and update session
-            session(['user_plans' => $currentPlans]);
-            session()->flash('success', 'New workout plan has been added to your dashboard.');
-        }
+        // Redirect or return token as JSON
+        return redirect("http://localhost:3000/oauth-success?token=$token");
     }
 }

@@ -3,8 +3,9 @@
 namespace App\Http\Controllers\auth;
 
 use App\Http\Controllers\Controller;
+use App\Models\User;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
-use Illuminate\Support\Facades\Request;
 
 class RegisteredUserController extends Controller
 {
@@ -13,34 +14,37 @@ class RegisteredUserController extends Controller
         return response()->json(['message' => 'Register endpoint. Use POST to register.'], 200);
     }
 
-    public function store()
+    public function store(Request $request)
     {
 
+        // dd($request);
         $email_confirmation_token = bin2hex(random_bytes(16));
         //generate random verification code integer 6 digits for email verification
+
         $account_verification_code = random_int(100000, 999999);
-        $attributes = request()->validate([
+        $request->validate([
             'username' => ['required', 'string', 'min:3'],
             'email' => ['required', 'email', 'max:255', 'unique:users'],
             'password' => ['required', 'confirmed', \Illuminate\Validation\Rules\Password::min(6)],
         ]);
 
-        $attributes['verification_token'] = $email_confirmation_token;
-        $attributes['email_verified'] = 0;
-        $user = \App\Models\User::create([
-            'username' => $attributes['username'],
-            'email' => $attributes['email'],
-            'password' => bcrypt($attributes['password']),
-            'country' => $attributes['country'],
-            'phone_number' => $attributes['phone_number'],
+        $request['verification_token'] = $email_confirmation_token;
+        $request['email_verified'] = 0;
+
+        $user = User::create([
+            'username' => $request['username'],
+            'email' => $request['email'],
+            'password' => bcrypt($request['password']),
+            'country' => $request['country'],
+            'phone_number' => $request['phone'],
             'verification_token' => $email_confirmation_token,
             'account_verification_code' => $account_verification_code,
             'email_verified' => 0,
         ]);
         $confirm_email_url = env('APP_FRONT_URL') . '/email-verification/' . $user->email . '/' . $email_confirmation_token;
         try {
-            Mail::send('emails.verify-email', compact('account_verification_code', 'attributes'), function ($message) use ($attributes) {
-                $message->to($attributes['email'])->subject('Email Confirmation');
+            Mail::send('emails.verify-email', compact('account_verification_code', 'request'), function ($message) use ($request) {
+                $message->to($request['email'])->subject('Email Confirmation');
             });
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to send verification email.'], 500);
@@ -70,29 +74,29 @@ class RegisteredUserController extends Controller
         return response()->json(['error' => 'Email verification failed.'], 400);
     }
 
-    public function verifyEmailSendNewCode()
+    public function verifyEmailSendNewCode(Request $request)
     {
-        $attributes = request()->validate([
+        $request->validate([
             'email' => ['required', 'email', 'max:255']
         ]);
-        $user = \App\Models\User::where('email', $attributes['email'])->first();
-        if ($user) {
+        $user = User::where('email', $request['email'])->first();
+        if ($user && $user->account_verification_code !== null) {
+            return response()->json(['error' => 'You already have a verification code. Please check your email.'], 404);
+        } else {
             $account_verification_code = random_int(100000, 999999);
             $user->account_verification_code = $account_verification_code;
             $user->save();
             try {
-                Mail::send('emails.verify-email', compact('account_verification_code', 'attributes'), function ($message) use ($attributes) {
-                    $message->to($attributes['email'])->subject('Email Confirmation');
+                Mail::send('emails.verify-email', compact('account_verification_code', 'request'), function ($message) use ($request) {
+                    $message->to($request['email'])->subject('Email Confirmation');
                 });
             } catch (\Exception $e) {
-                return response()->json(['error' => 'Failed to send verification email.'], 500);
             }
             return response()->json([
                 'message' => 'New verification code sent.',
                 'verification_token' => $user->verification_token,
             ], 200);
         }
-        return response()->json(['error' => 'This Email is not registered.'], 404);
     }
 
     public function forgotPassword()
@@ -105,7 +109,7 @@ class RegisteredUserController extends Controller
         $attributes = request()->validate([
             'email' => ['required', 'email', 'max:255']
         ]);
-        $user = \App\Models\User::where('email', $attributes['email'])->first();
+        $user = User::where('email', $attributes['email'])->first();
         if ($user) {
             $password_reset_token = bin2hex(random_bytes(16));
             $user->password_reset_token = $password_reset_token;
@@ -126,7 +130,7 @@ class RegisteredUserController extends Controller
 
     public function resetPassword($email, $token)
     {
-        $user = \App\Models\User::where('email', $email)->first();
+        $user = User::where('email', $email)->first();
         if ($user && ($user->password_reset_token == $token)) {
             return response()->json(['message' => 'Token valid. You can reset your password.', 'email' => $email, 'token' => $token], 200);
         }
@@ -139,7 +143,7 @@ class RegisteredUserController extends Controller
             'email' => ['required', 'email', 'max:255'],
             'password' => ['required', 'confirmed', \Illuminate\Validation\Rules\Password::min(6)]
         ]);
-        $user = \App\Models\User::where('email', $attributes['email'])->first();
+        $user = User::where('email', $attributes['email'])->first();
         if ($user) {
             $user->update([
                 'password' => bcrypt($attributes['password']),

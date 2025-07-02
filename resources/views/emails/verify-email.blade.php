@@ -1,4 +1,4 @@
-<h2>Dear {{ $attributes['username'] }},</h2>
+<h2>Dear {{ $request['username'] }},</h2>
 <br>
 This is your verification code:
 <br>
