@@ -3,7 +3,9 @@
 namespace App\Http\Controllers;
 
 use App\BannerSwiper;
+use App\Category;
 use App\HomepageSetting;
+use App\Product;
 use Illuminate\Http\Request;
 
 class HomepageController extends Controller
@@ -15,10 +17,14 @@ class HomepageController extends Controller
     {
         $bannerSwiper = BannerSwiper::orderBy('ht_pos')->get();
         $homepageSettings = HomepageSetting::first();
+        $categories = Category::where('is_active', 1)->get()->take(6);
+        $latest_products = Product::orderBy('created_at', 'desc')->where('is_active', 1)->take(4)->get();
 
         return response()->json([
             'bannerSwiper' => $bannerSwiper,
-            'homepageSettings' => $homepageSettings
+            'homepageSettings' => $homepageSettings,
+            'categories' => $categories,
+            'latest_products' => $latest_products
         ]);
     }
 
