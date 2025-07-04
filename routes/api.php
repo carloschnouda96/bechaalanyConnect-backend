@@ -6,7 +6,9 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\auth\RegisteredUserController;
 use App\Http\Controllers\auth\SocialiteController;
+use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\SessionController;
+use App\Http\Controllers\SubcategoryController;
 
 /*
 |--------------------------------------------------------------------------
@@ -48,4 +50,6 @@ Route::post('/reset-password', [RegisteredUserController::class, 'resetPasswordS
 Route::middleware('locale')->prefix('{locale}')->group(function () {
     Route::get('/general', [GeneralController::class, 'index']);
     Route::get('/home', [HomepageController::class, 'index']);
+    Route::get('/categories', [CategoryController::class, 'index']);
+    Route::get('/categories/{slug}', [SubcategoryController::class, 'index']);
 });
