@@ -50,6 +50,9 @@ Route::middleware('auth:sanctum')->post('/logout', [SessionController::class, 'd
 Route::post('/forgot-password', [RegisteredUserController::class, 'forgotPasswordSendEmail']);
 Route::post('/reset-password', [RegisteredUserController::class, 'resetPasswordSendEmail']);
 
+//Contact Form Routes
+Route::post('/contact-form-submit', [ContactController::class, 'submit']);
+
 Route::middleware('locale')->prefix('{locale}')->group(function () {
     //General Route
     Route::get('/general', [GeneralController::class, 'index']);
