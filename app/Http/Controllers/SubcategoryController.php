@@ -16,6 +16,7 @@ class SubcategoryController extends Controller
         $subcategories = Subcategory::where('is_active', 1)->whereHas('category', function ($query) use ($slug) {
             $query->where('slug', $slug);
         })
+        ->orderBy('ht_pos')
         ->get();
         //return the category title only
         $category = Category::where('slug', $slug)->first();

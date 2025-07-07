@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Controllers\AboutController;
 use App\Http\Controllers\GeneralController;
 use App\Http\Controllers\HomepageController;
 use Illuminate\Http\Request;
@@ -49,10 +50,21 @@ Route::post('/forgot-password', [RegisteredUserController::class, 'forgotPasswor
 Route::post('/reset-password', [RegisteredUserController::class, 'resetPasswordSendEmail']);
 
 Route::middleware('locale')->prefix('{locale}')->group(function () {
+    //General Route
     Route::get('/general', [GeneralController::class, 'index']);
+
+    //Homepage Route
     Route::get('/home', [HomepageController::class, 'index']);
+
+    //Category Route
     Route::get('/categories', [CategoryController::class, 'index']);
+
+    //Subcategory Route
     Route::get('/categories/{slug}', [SubcategoryController::class, 'index']);
+
+    //Product Route
     Route::get('/categories/{slug}/{subcategory_slug}', [ProductController::class, 'index']);
 
+    //About Page Route
+    Route::get('/about', [AboutController::class, 'index']);
 });

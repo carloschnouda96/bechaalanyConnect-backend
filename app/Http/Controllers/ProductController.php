@@ -19,7 +19,7 @@ class ProductController extends Controller
                 $q2->where('slug', $slug);
             });
             $query->where('slug', $subcategory_slug);
-        })->get();
+        })->orderBy('ht_pos')->get();
 
         $subcategory = Subcategory::where('slug', $subcategory_slug)->first();
         $category = Category::where('slug', $slug)->first();
