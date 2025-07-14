@@ -68,8 +68,11 @@ Route::middleware('locale')->prefix('{locale}')->group(function () {
     //Subcategory Route
     Route::get('/categories/{slug}', [SubcategoryController::class, 'index']);
 
-    //Product Route
-    Route::get('/categories/{slug}/{subcategory_slug}', [ProductController::class, 'index']);
+    //Products Route
+    Route::get('/categories/{category_slug}/{subcategory_slug}', [ProductController::class, 'index']);
+
+    //Single Product Route
+    Route::get('/categories/{category_slug}/{subcategory_slug}/{slug}', [ProductController::class, 'SingleProduct']);
 
     //About Page Route
     Route::get('/about', [AboutController::class, 'index']);
