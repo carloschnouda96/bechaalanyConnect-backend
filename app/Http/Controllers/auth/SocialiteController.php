@@ -6,6 +6,7 @@ namespace App\Http\Controllers\auth;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Laravel\Socialite\Facades\Socialite;
+use Illuminate\Http\Request;
 
 
 class SocialiteController extends Controller
@@ -18,7 +19,7 @@ class SocialiteController extends Controller
 
     public function callback()
     {
-        $googleUser = Socialite::driver('google')->stateless()->user();
+        $googleUser = Socialite::driver('google')->user();
 
         $user = User::where('google_id', $googleUser->id)
             ->orWhere('email', $googleUser->email)
@@ -45,6 +46,46 @@ class SocialiteController extends Controller
         $token = $user->createToken('auth_token')->plainTextToken;
 
         // Redirect or return token as JSON
-        return redirect("http://localhost:3000/oauth-success?token=$token");
+        return redirect("https://bechaalanyconnect.vercel.app/oauth-success?token=$token");
+    }
+    
+    public function syncUser(Request $request)
+    {
+        
+        $data = $request->validate([
+            'email' => 'required|email',
+            'username' => 'required|string',
+            'google_id' => 'required|string',
+        ]);
+    
+        $user = User::where('google_id', $data['google_id'])
+            ->orWhere('email', $data['email'])
+            ->first();
+    
+        if ($user) {
+            // Update existing user
+            $user->update([
+                'username' => $data['username'],
+                'google_id' => $data['google_id'],
+                'email_verified' => 1,
+            ]);
+        } else {
+            // Create new user
+            $user = User::create([
+                'username' => $data['username'],
+                'email' => $data['email'],
+                'google_id' => $data['google_id'],
+                'password' => bcrypt(str()->random(24)),
+                'email_verified' => 1,
+            ]);
+        }
+    
+        // Issue Laravel token
+        $token = $user->createToken('auth_token')->plainTextToken;
+    
+        return response()->json([
+            'token' => $token,
+            'user' => $user,
+        ]);
     }
 }

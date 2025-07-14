@@ -31,6 +31,7 @@ Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
 //Google Login
 Route::get('signin-with-google', [SocialiteController::class, 'redirect'])->name('redirect');
 Route::get('callback', [SocialiteController::class, 'callback'])->name('callback');
+Route::post('/auth/google-sync', [SocialiteController::class, 'syncUser']);
 
 //Register Routes
 Route::post('/register', [RegisteredUserController::class, 'store']);
