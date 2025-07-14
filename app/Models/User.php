@@ -25,9 +25,11 @@ class User extends Authenticatable
         'verification_token',
         'email_verified',
         'password_reset_token',
+        'google_id',
         'account_verification_code',
         'country',
         'phone_number',
+        
     ];
 
     /**
