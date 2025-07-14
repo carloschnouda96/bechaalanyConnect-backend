@@ -10,7 +10,7 @@ class SearchController extends Controller
     public function index($locale, Request $request)
     {
         $search_term = $request->name;
-        $products = Product::whereTranslationLike('name', '%' . $search_term . '%')->with('subcategory.category')->get();
+        $products = Product::whereTranslationLike('name', '%' . $search_term . '%')->get();
         return response()->json($products);
     }
 }
