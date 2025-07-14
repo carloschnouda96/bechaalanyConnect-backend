@@ -7,12 +7,11 @@ use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Support\Facades\Storage;
 use Carbon\Carbon;
 
-use Astrotomic\Translatable\Contracts\Translatable as TranslatableContract;
-use Astrotomic\Translatable\Translatable;
+use Astrotomic\Translatable\Contracts\Translatable as TranslatableContract; use Astrotomic\Translatable\Translatable;
 
 class Product extends Model  implements TranslatableContract
 {
-    use Translatable;
+	use Translatable;
 
     protected $table = 'products';
 
@@ -20,20 +19,9 @@ class Product extends Model  implements TranslatableContract
 
     protected $hidden = ['translations'];
 
-    public $translatedAttributes = ["name", "description"];
+    public $translatedAttributes = ["name","description"];
 
-    protected static function booted()
-    {
-        static::addGlobalScope('cms_draft_flag', function (Builder $builder) {
-            $builder->where('products.cms_draft_flag', '!=', 1);
-        });
-    }
-    public function subcategory()
-    {
-        return $this->belongsTo('App\Subcategory');
-    }
-
-    public $with = ['subcategory.category'];
+	protected static function booted(){static::addGlobalScope('cms_draft_flag', function (Builder $builder) {$builder->where('products.cms_draft_flag', '!=', 1);});}public function subcategory() { return $this->belongsTo('App\Subcategory'); } public function related_products() { return $this->belongsToMany('App\Product', 'related_product_product', 'product_id', 'other_product_id')->orderBy('related_product_product.ht_pos'); } 
 
     /* Start custom functions */
 
