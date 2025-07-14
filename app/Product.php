@@ -33,6 +33,8 @@ class Product extends Model  implements TranslatableContract
         return $this->belongsTo('App\Subcategory');
     }
 
+    public $with = ['subcategory.category'];
+
     /* Start custom functions */
 
     public $appends = ['full_path'];
