@@ -10,6 +10,7 @@ use App\Http\Controllers\auth\SocialiteController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\ProductController;
+use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SessionController;
 use App\Http\Controllers\SubcategoryController;
 
@@ -75,4 +76,7 @@ Route::middleware('locale')->prefix('{locale}')->group(function () {
 
     //Contact Page Route
     Route::get('/contact', [ContactController::class, 'index']);
+
+    //Search Route
+    Route::get('/search', [SearchController::class, 'index']);
 });
