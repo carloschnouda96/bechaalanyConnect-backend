@@ -41,6 +41,7 @@ class ProductController extends Controller
             ->get();
         $product = Product::where('slug', $slug)
             ->with('related_products')
+            ->with('product_type')
             ->first();
         $subcategory = Subcategory::where('slug', $subcategory_slug)->first();
         $category = Category::where('slug', $category_slug)->first();

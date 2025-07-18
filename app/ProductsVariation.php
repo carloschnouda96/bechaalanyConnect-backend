@@ -39,8 +39,11 @@ class ProductsVariation extends Model  implements TranslatableContract
 
     public function getFullPathAttribute()
     {
-        $image = Storage::url($this->image);
-        return compact('image');
+        if ($this->image) {
+            $image = Storage::url($this->image);
+            return compact('image');
+        }
+        return null;
     }
 
     /* End custom functions */

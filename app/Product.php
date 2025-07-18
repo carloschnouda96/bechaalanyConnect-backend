@@ -36,6 +36,10 @@ class Product extends Model  implements TranslatableContract
     {
         return $this->belongsToMany('App\Product', 'related_product_product', 'product_id', 'other_product_id')->orderBy('related_product_product.ht_pos');
     }
+    public function product_type()
+    {
+        return $this->belongsTo('App\ProductType');
+    }
 
     /* Start custom functions */
 
