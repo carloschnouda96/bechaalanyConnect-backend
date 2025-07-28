@@ -39,6 +39,7 @@ class SocialiteController extends Controller
                 'google_id' => $googleUser->id,
                 'password' => bcrypt(str()->random(24)), // random password
                 'email_verified' => 1,
+                'credits_balance' => 0
             ]);
         }
 
@@ -48,20 +49,20 @@ class SocialiteController extends Controller
         // Redirect or return token as JSON
         return redirect("https://bechaalanyconnect.vercel.app/oauth-success?token=$token");
     }
-    
+
     public function syncUser(Request $request)
     {
-        
+
         $data = $request->validate([
             'email' => 'required|email',
             'username' => 'required|string',
             'google_id' => 'required|string',
         ]);
-    
+
         $user = User::where('google_id', $data['google_id'])
             ->orWhere('email', $data['email'])
             ->first();
-    
+
         if ($user) {
             // Update existing user
             $user->update([
@@ -77,12 +78,13 @@ class SocialiteController extends Controller
                 'google_id' => $data['google_id'],
                 'password' => bcrypt(str()->random(24)),
                 'email_verified' => 1,
+                'credits_balance' => 0,
             ]);
         }
-    
+
         // Issue Laravel token
         $token = $user->createToken('auth_token')->plainTextToken;
-    
+
         return response()->json([
             'token' => $token,
             'user' => $user,

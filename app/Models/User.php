@@ -33,6 +33,7 @@ class User extends Authenticatable
         'business_name',
         'business_location',
         'user_types_id',
+        'credits_balance',
     ];
 
     /**

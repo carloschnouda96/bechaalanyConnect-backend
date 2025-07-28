@@ -1,0 +1,36 @@
+<?php
+
+namespace App\Http\Controllers;
+
+use App\Order;
+use Illuminate\Http\Request;
+
+class OrderController extends Controller
+{
+    public function saveOrder(Request $request)
+    {
+        // Validate and process the order data
+        $validatedData = $request->validate([
+            'product_variation_id' => 'required|exists:products_variations,id',
+            'quantity' => 'required|integer|min:1',
+            'users_id' => 'required|exists:users,id',
+            'total_price' => 'required|numeric|min:0',
+            'recipient_user' => 'max:255',
+            'recipient_phone_number' => 'max:15',
+            'statuses_id' => 'numeric'
+        ]);
+
+        // Create the order
+        $order = new Order;
+        $order->product_variation_id = $validatedData['product_variation_id'];
+        $order->quantity = $validatedData['quantity'];
+        $order->users_id = $validatedData['users_id'];
+        $order->total_price = $validatedData['total_price'];
+        $order->recipient_user = $validatedData['recipient_user'];
+        $order->recipient_phone_number = $validatedData['recipient_phone_number'];
+        $order->statuses_id = $validatedData['statuses_id'];
+        $order->save();
+
+        return response()->json($order, 201);
+    }
+}

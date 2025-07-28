@@ -9,6 +9,7 @@ use App\Http\Controllers\auth\RegisteredUserController;
 use App\Http\Controllers\auth\SocialiteController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SessionController;
@@ -54,6 +55,9 @@ Route::post('/reset-password', [RegisteredUserController::class, 'resetPasswordS
 
 //Contact Form Routes
 Route::post('/contact-form-submit', [ContactController::class, 'submit']);
+
+//Save Order Route
+Route::post('/save-order', [OrderController::class, 'saveOrder']);
 
 Route::middleware('locale')->prefix('{locale}')->group(function () {
     //General Route
