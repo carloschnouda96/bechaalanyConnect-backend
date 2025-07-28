@@ -20,11 +20,11 @@ class SessionController extends Controller
             'password' => ['required'],
         ]);
         if (! Auth::attempt($attributes)) {
-            return response()->json(['error' => 'Your Email or Password is incorrect.'], 401);
+            return response()->json(['message' => 'Your Email or Password is incorrect.'], 401);
         }
         $user = Auth::user();
         if (! $user->email_verified) {
-            return response()->json(['error' => 'Please verify your email.'], 403);
+            return response()->json(['message' => 'Please verify your email.'], 403);
         }
         $token = $user->createToken('api-token')->plainTextToken;
         return response()->json(['token' => $token, 'user' => $user], 200);

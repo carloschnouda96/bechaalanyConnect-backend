@@ -19,7 +19,7 @@ class User extends Model
 
     
 
-	protected static function booted(){static::addGlobalScope('cms_draft_flag', function (Builder $builder) {$builder->where('users.cms_draft_flag', '!=', 1);});}public function user_wholesale_types() { return $this->belongsTo('App\UserWholesaleType'); } 
+	protected static function booted(){static::addGlobalScope('cms_draft_flag', function (Builder $builder) {$builder->where('users.cms_draft_flag', '!=', 1);});}public function user_types() { return $this->belongsTo('App\UserType'); } 
 
     /* Start custom functions */
 

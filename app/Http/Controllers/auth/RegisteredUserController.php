@@ -40,6 +40,10 @@ class RegisteredUserController extends Controller
             'verification_token' => $email_confirmation_token,
             'account_verification_code' => $account_verification_code,
             'email_verified' => 0,
+            'is_business_user' => $request['isBusiness'] ?? 0,
+            'business_name' => $request['storeName'] ?? null,
+            'business_location' => $request['location'] ?? null,
+            'user_types_id' => $request['userType'] ?? null,
         ]);
         $confirm_email_url = env('APP_FRONT_URL') . '/email-verification/' . $user->email . '/' . $email_confirmation_token;
         try {

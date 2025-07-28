@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Country;
 use App\FixedSetting;
 use App\MenuItem;
 use App\SocialMediaLink;
+use App\UserType;
 use Illuminate\Http\Request;
 use Hellotreedigital\Cms\Models\Language;
 
@@ -21,12 +23,16 @@ class GeneralController extends Controller
         $menu_items = MenuItem::orderBy('ht_pos')->get();
         $social_links = SocialMediaLink::orderBy('ht_pos')->get();
         $locale = Language::get()->keyBy('slug');
+        $user_types = UserType::orderBy('ht_pos')->get();
+        $countries = Country::orderBy('ht_pos')->get();
 
         return response()->json([
             'settings' => $settings,
             'menu_items' => $menu_items,
             'social_links' => $social_links,
-            'locale' => $locale
+            'locale' => $locale,
+            'user_types' => $user_types,
+            'countries' => $countries
         ]);
     }
 
