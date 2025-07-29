@@ -34,7 +34,15 @@ class User extends Authenticatable
         'business_location',
         'user_types_id',
         'credits_balance',
+        'total_purchases'
     ];
+
+    public $with = ['orders'];
+
+    public function orders()
+    {
+        return $this->hasMany('App\Order', 'users_id')->with(['product_variation.product']);
+    }
 
     /**
      * The attributes that should be hidden for serialization.

@@ -59,6 +59,14 @@ Route::post('/contact-form-submit', [ContactController::class, 'submit']);
 //Save Order Route
 Route::post('/save-order', [OrderController::class, 'saveOrder']);
 
+//Get User Orders
+Route::middleware('auth:sanctum')->get('/user/orders', function (Request $request) {
+    return response()->json([
+        'orders' => $request->user()->orders,
+        // 'credits_balance' => $request->user()->credits_balance
+    ]);
+});
+
 Route::middleware('locale')->prefix('{locale}')->group(function () {
     //General Route
     Route::get('/general', [GeneralController::class, 'index']);
