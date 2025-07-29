@@ -2,11 +2,18 @@
 
 namespace App\Http\Controllers;
 
+use App\FixedSetting;
 use App\Order;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 
 class OrderController extends Controller
 {
+    function getAdminEmail()
+    {
+        $adminEmail = FixedSetting::first()->admin_email;
+        return $adminEmail ? $adminEmail : null;
+    }
     public function saveOrder(Request $request)
     {
         // Validate and process the order data
@@ -30,6 +37,13 @@ class OrderController extends Controller
         $order->recipient_phone_number = $validatedData['recipient_phone_number'];
         $order->statuses_id = $validatedData['statuses_id'];
         $order->save();
+
+        $admin_email = $this->getAdminEmail();
+
+        //Send email to the admin to approve the order
+        Mail::send('emails.order-request', compact('order'), function ($message) use ($admin_email) {
+            $message->to($admin_email)->subject('New Order Request');
+        });
 
         return response()->json($order, 201);
     }
