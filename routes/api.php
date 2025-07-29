@@ -67,6 +67,16 @@ Route::middleware('auth:sanctum')->get('/user/orders', function (Request $reques
     ]);
 });
 
+//Get User Profile
+Route::middleware('auth:sanctum')->get('/user/profile', function (Request $request) {
+    return response()->json([
+        'user' => $request->user(),
+        'orders' => $request->user()->orders,
+        'credits_balance' => $request->user()->credits_balance,
+        'total_purchases' => $request->user()->total_purchases
+    ]);
+});
+
 Route::middleware('locale')->prefix('{locale}')->group(function () {
     //General Route
     Route::get('/general', [GeneralController::class, 'index']);
