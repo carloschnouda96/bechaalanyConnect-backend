@@ -37,11 +37,16 @@ class User extends Authenticatable
         'total_purchases'
     ];
 
-    public $with = ['orders'];
+    public $with = ['orders', 'credits'];
 
     public function orders()
     {
-        return $this->hasMany('App\Order', 'users_id')->with(['product_variation.product']);
+        return $this->hasMany('App\Order', 'users_id')->with(['product_variation.product'])->orderBy('created_at', 'desc');
+    }
+
+    public function credits()
+    {
+        return $this->hasMany('App\CreditsTransfer', 'users_id')->with(['credits_types'])->orderBy('created_at', 'desc');
     }
 
     /**

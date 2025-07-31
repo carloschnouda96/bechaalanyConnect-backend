@@ -9,6 +9,7 @@ use App\Http\Controllers\auth\RegisteredUserController;
 use App\Http\Controllers\auth\SocialiteController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ContactController;
+use App\Http\Controllers\CreditsController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SearchController;
@@ -26,9 +27,7 @@ use App\Http\Controllers\SubcategoryController;
 |
 */
 
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
-    return $request->user();
-});
+
 
 //Google Login
 Route::get('signin-with-google', [SocialiteController::class, 'redirect'])->name('redirect');
@@ -46,7 +45,6 @@ Route::post('/resend-verification-code', [RegisteredUserController::class, 'veri
 Route::post('/login', [SessionController::class, 'store']);
 
 //Logout Routes
-// Route::post('/logout', [SessionController::class, 'destroy']);
 Route::middleware('auth:sanctum')->post('/logout', [SessionController::class, 'destroy']);
 
 //Password Reset Routes
@@ -63,8 +61,18 @@ Route::post('/save-order', [OrderController::class, 'saveOrder']);
 Route::middleware('auth:sanctum')->get('/user/orders', function (Request $request) {
     return response()->json([
         'orders' => $request->user()->orders,
-        // 'credits_balance' => $request->user()->credits_balance
     ]);
+});
+
+//Get User Credits
+Route::middleware('auth:sanctum')->get('/user/credits', function (Request $request) {
+    return response()->json([
+        'credits' => $request->user()->credits,
+    ]);
+});
+
+Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
+    return $request->user();
 });
 
 //Get User Profile
@@ -72,11 +80,16 @@ Route::middleware('auth:sanctum')->get('/user/profile', function (Request $reque
     return response()->json([
         'user' => $request->user(),
         'orders' => $request->user()->orders,
+        'credits' => $request->user()->credits,
         'credits_balance' => $request->user()->credits_balance,
         'total_purchases' => $request->user()->total_purchases
     ]);
 });
 
+//Save Transfered User Transfer Credit Request
+Route::middleware('auth:sanctum')->post('/transfer-credit-request', [CreditsController::class, 'transferCreditRequest']);
+
+//Global api Routes
 Route::middleware('locale')->prefix('{locale}')->group(function () {
     //General Route
     Route::get('/general', [GeneralController::class, 'index']);
@@ -104,4 +117,10 @@ Route::middleware('locale')->prefix('{locale}')->group(function () {
 
     //Search Route
     Route::get('/search', [SearchController::class, 'index']);
+
+    //Get Credits
+    Route::get('/credit-types', [CreditsController::class, 'getCredits']);
+
+    //Get single Credit Type
+    Route::get('/credit-types/{slug}', [CreditsController::class, 'getSingleCreditType']);
 });
