@@ -40,6 +40,14 @@ class OrderController extends Controller
 
         $admin_email = $this->getAdminEmail();
 
+        //Reduce user's credits balance
+        $user = \App\Models\User::find($order->users_id);
+        if ($user) {
+            $user->credits_balance -= $order->total_price;
+            $user->total_purchases += $order->total_price;
+            $user->save();
+        }
+
         //Send email to the admin to approve the order
         Mail::send('emails.order-request', compact('order'), function ($message) use ($admin_email) {
             $message->to($admin_email)->subject('New Order Request');

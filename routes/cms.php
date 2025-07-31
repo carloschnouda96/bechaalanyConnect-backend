@@ -11,6 +11,7 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
     /* Start admin route group */
 
     Route::put('/orders/{id}', 'App\Http\Controllers\Cms\OrdersController@update');
+    Route::put('/credits-transfer/{id}', 'App\Http\Controllers\Cms\CreditsController@update');
 
 
 	/* End admin route group */

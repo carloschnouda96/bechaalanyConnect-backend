@@ -45,13 +45,6 @@ class CreditsController extends Controller
 
         $receiptImagePath = $request->file('receipt_image')->store('receipts', 'public');
 
-        // Create a new transfer credit request
-        // $transferRequest = $user->creditTransferRequests()->create([
-        //     'users_id' => $validatedData['users_id'],
-        //     'amount' => $validatedData['amount'],
-        //     'receipt_image' => $receiptImagePath,
-        //     'statuses_id' => $validatedData['statuses_id'],
-        // ]);
 
         $transferRequest = new CreditsTransfer();
         $transferRequest->users_id = $validatedData['users_id'];
@@ -60,6 +53,7 @@ class CreditsController extends Controller
         $transferRequest->credits_types_id = $request->credits_types_id; // Assuming this is passed in the request
         $transferRequest->statuses_id = $validatedData['statuses_id'];
         $transferRequest->save();
+
 
         return response()->json([
             'message' => 'Transfer credit request submitted successfully.',

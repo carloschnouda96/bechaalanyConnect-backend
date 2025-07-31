@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Cms;
 use Illuminate\Http\Request;
 use Hellotreedigital\Cms\Controllers\CmsPageController;
 use App\Http\Controllers\Controller;
+use App\Models\User;
 use App\Order;
 
 class OrdersController extends Controller
@@ -35,24 +36,49 @@ class OrdersController extends Controller
         if (!$order) {
             return;
         }
-        // Assuming: 1 = approved, 2 = pending, 3 = rejected
-        $user = \App\Models\User::find($order->users_id);
-        // Refund only if status changed from approved to pending or rejected
-        if ($previousStatus == 1 && ($statusId == 2 || $statusId == 3)) {
-            if ($user) {
-                $user->credits_balance += $order->total_price;
-                $user->total_purchases -= $order->total_price;
-                $user->save();
-            }
+        // Status IDs: 1 = approved, 3 = pending, 2 = rejected
+        $user = User::find($order->users_id);
+        if (!$user) {
+            return;
+        }
+
+        // No action if status did not change
+        if ($previousStatus == $statusId) {
+            return;
+        }
+
+        // 1. If changed from pending to rejected, refund
+        if ($previousStatus == 3 && $statusId == 2) {
+            $user->credits_balance += $order->total_price;
+            $user->total_purchases -= $order->total_price;
+            $user->save();
             return $order->total_price;
         }
-        // Deduct only if status changed to approved
-        if ($statusId == 1 && $previousStatus != 1) {
-            if ($user) {
-                $user->credits_balance -= $order->total_price;
-                $user->total_purchases += $order->total_price;
-                $user->save();
-            }
+
+        // 2. If changed from pending to approved, do nothing
+        if ($previousStatus == 3 && $statusId == 1) {
+            return;
+        }
+
+        // 3. If changed from rejected to pending or approved, reduce amount again
+        if ($previousStatus == 2 && ($statusId == 3 || $statusId == 1)) {
+            $user->credits_balance -= $order->total_price;
+            $user->total_purchases += $order->total_price;
+            $user->save();
+            return $order->total_price;
+        }
+
+        // 4. If changed from approved to rejected, refund
+        if ($previousStatus == 1 && $statusId == 2) {
+            $user->credits_balance += $order->total_price;
+            $user->total_purchases -= $order->total_price;
+            $user->save();
+            return $order->total_price;
+        }
+
+        // 5. If changed from approved to pending, do nothing
+        if ($previousStatus == 1 && $statusId == 3) {
+            return;
         }
     }
 }
