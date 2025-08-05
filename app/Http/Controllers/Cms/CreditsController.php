@@ -42,6 +42,7 @@ class CreditsController extends Controller
         if ($previousStatus == 1 && ($statusId == 2 || $statusId == 3)) {
             if ($user) {
                 $user->credits_balance -= $creditsTransfer->amount;
+                $user->received_amount -= $creditsTransfer->amount;
                 $user->save();
             }
             return $creditsTransfer->amount;
@@ -50,6 +51,7 @@ class CreditsController extends Controller
         if ($statusId == 1 && $previousStatus != 1) {
             if ($user) {
                 $user->credits_balance += $creditsTransfer->amount;
+                $user->received_amount += $creditsTransfer->amount;
                 $user->save();
             }
         }

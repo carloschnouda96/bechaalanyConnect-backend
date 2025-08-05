@@ -39,7 +39,9 @@ class SocialiteController extends Controller
                 'google_id' => $googleUser->id,
                 'password' => bcrypt(str()->random(24)), // random password
                 'email_verified' => 1,
-                'credits_balance' => 0
+                'credits_balance' => 0,
+                'total_purchases' => 0,
+                'received_amount' => 0
             ]);
         }
 

@@ -82,7 +82,8 @@ Route::middleware('auth:sanctum')->get('/user/profile', function (Request $reque
         'orders' => $request->user()->orders,
         'credits' => $request->user()->credits,
         'credits_balance' => $request->user()->credits_balance,
-        'total_purchases' => $request->user()->total_purchases
+        'total_purchases' => $request->user()->total_purchases,
+        'received_amount' => $request->user()->received_amount,
     ]);
 });
 

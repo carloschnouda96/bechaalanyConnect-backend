@@ -34,7 +34,8 @@ class User extends Authenticatable
         'business_location',
         'user_types_id',
         'credits_balance',
-        'total_purchases'
+        'total_purchases',
+        'received_amount'
     ];
 
     public $with = ['orders', 'credits', 'user_types'];
