@@ -27,6 +27,12 @@ class OrderController extends Controller
             'statuses_id' => 'numeric'
         ]);
 
+        $user = \App\Models\User::find($validatedData['users_id']);
+
+        if ($user->credits_balance < $validatedData['total_price']) {
+            return response()->json(['message' => 'Not enough credits to place order'], 400);
+        }
+
         // Create the order
         $order = new Order;
         $order->product_variation_id = $validatedData['product_variation_id'];
@@ -41,7 +47,6 @@ class OrderController extends Controller
         $admin_email = $this->getAdminEmail();
 
         //Reduce user's credits balance
-        $user = \App\Models\User::find($order->users_id);
         if ($user) {
             $user->credits_balance -= $order->total_price;
             $user->total_purchases += $order->total_price;
