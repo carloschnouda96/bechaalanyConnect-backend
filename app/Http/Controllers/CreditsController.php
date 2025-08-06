@@ -17,6 +17,24 @@ class CreditsController extends Controller
             'credits_types' => $credits_types,
         ]);
     }
+    //Get user credits
+    public function getUserCredits(Request $request)
+    {
+        $page = $request->get('page', 1);
+        $limit = $request->get('limit', 10);
+        $credits = CreditsTransfer::where('users_id', auth()->id())
+            ->with(['credits_types'])
+            ->orderBy('created_at', 'desc')
+            ->paginate($limit);
+
+        return response()->json([
+            'credits' => $credits->items(),
+            'total' => $credits->total(),
+            'current_page' => $credits->currentPage(),
+            'per_page' => $credits->perPage(),
+            'last_page' => $credits->lastPage()
+        ]);
+    }
 
     //Get single credit type by slug
     public function getSingleCreditType($locale, $slug)

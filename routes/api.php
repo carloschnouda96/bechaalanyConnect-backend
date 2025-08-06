@@ -58,18 +58,10 @@ Route::post('/contact-form-submit', [ContactController::class, 'submit']);
 Route::post('/save-order', [OrderController::class, 'saveOrder']);
 
 //Get User Orders
-Route::middleware('auth:sanctum')->get('/user/orders', function (Request $request) {
-    return response()->json([
-        'orders' => $request->user()->orders,
-    ]);
-});
+Route::middleware('auth:sanctum')->get('/user/orders', [OrderController::class, 'getUserOrders']);
 
 //Get User Credits
-Route::middleware('auth:sanctum')->get('/user/credits', function (Request $request) {
-    return response()->json([
-        'credits' => $request->user()->credits,
-    ]);
-});
+Route::middleware('auth:sanctum')->get('/user/credits', [CreditsController::class, 'getUserCredits']);
 
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();

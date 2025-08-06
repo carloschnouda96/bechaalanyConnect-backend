@@ -14,6 +14,27 @@ class OrderController extends Controller
         $adminEmail = FixedSetting::first()->admin_email;
         return $adminEmail ? $adminEmail : null;
     }
+
+    public function getUserOrders(Request $request)
+    {
+        $page = $request->get('page', 1);
+        $limit = $request->get('limit', 10);
+
+        $orders = Order::where('users_id', auth()->id())
+            ->with(['product_variation.product'])
+            ->orderBy('created_at', 'desc')
+            ->paginate($limit);
+
+        return response()->json([
+            'orders' => $orders->items(),
+            'total' => $orders->total(),
+            'current_page' => $orders->currentPage(),
+            'per_page' => $orders->perPage(),
+            'last_page' => $orders->lastPage()
+        ]);
+    }
+
+
     public function saveOrder(Request $request)
     {
         // Validate and process the order data
