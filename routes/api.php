@@ -41,11 +41,7 @@ Route::post('/register', [RegisteredUserController::class, 'store']);
 Route::post('/verify-email', [RegisteredUserController::class, 'verifyEmail']);
 Route::post('/resend-verification-code', [RegisteredUserController::class, 'verifyEmailSendNewCode']);
 
-//Login Routes
 Route::post('/login', [SessionController::class, 'store']);
-
-//Logout Routes
-Route::middleware('auth:sanctum')->post('/logout', [SessionController::class, 'destroy']);
 
 //Password Reset Routes
 Route::post('/forgot-password', [RegisteredUserController::class, 'forgotPasswordSendEmail']);
@@ -57,30 +53,37 @@ Route::post('/contact-form-submit', [ContactController::class, 'submit']);
 //Save Order Route
 Route::post('/save-order', [OrderController::class, 'saveOrder']);
 
-//Get User Orders
-Route::middleware('auth:sanctum')->get('/user/orders', [OrderController::class, 'getUserOrders']);
+// Authenticated user routes
+Route::middleware('auth:sanctum')->group(function () {
+    // Get User Profile
+    Route::get('/user/profile', function (Request $request) {
+        return response()->json([
+            'user' => $request->user(),
+            'orders' => $request->user()->orders,
+            'credits' => $request->user()->credits,
+            'credits_balance' => $request->user()->credits_balance,
+            'total_purchases' => $request->user()->total_purchases,
+            'received_amount' => $request->user()->received_amount,
+        ]);
+    });
 
-//Get User Credits
-Route::middleware('auth:sanctum')->get('/user/credits', [CreditsController::class, 'getUserCredits']);
+    Route::get('/user', function (Request $request) {
+        return $request->user();
+    });
 
-Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
-    return $request->user();
+    //Get User Orders
+    Route::get('/user/orders', [OrderController::class, 'getUserOrders']);
+
+    //Get User Credits
+    Route::get('/user/credits', [CreditsController::class, 'getUserCredits']);
+
+    //Save Transfered User Transfer Credit Request
+    Route::post('/transfer-credit-request', [CreditsController::class, 'transferCreditRequest']);
+
+    //Logout
+    Route::post('/logout', [SessionController::class, 'destroy']);
 });
 
-//Get User Profile
-Route::middleware('auth:sanctum')->get('/user/profile', function (Request $request) {
-    return response()->json([
-        'user' => $request->user(),
-        'orders' => $request->user()->orders,
-        'credits' => $request->user()->credits,
-        'credits_balance' => $request->user()->credits_balance,
-        'total_purchases' => $request->user()->total_purchases,
-        'received_amount' => $request->user()->received_amount,
-    ]);
-});
-
-//Save Transfered User Transfer Credit Request
-Route::middleware('auth:sanctum')->post('/transfer-credit-request', [CreditsController::class, 'transferCreditRequest']);
 
 //Global api Routes
 Route::middleware('locale')->prefix('{locale}')->group(function () {

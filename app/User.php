@@ -32,7 +32,7 @@ class User extends Model
 
     /* Start custom functions */
 
-    public $with = ['orders'];
+    public $with = ['orders', 'user_types'];
 
     public function orders()
     {
