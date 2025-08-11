@@ -21,7 +21,10 @@ class OrderController extends Controller
         $limit = $request->get('limit', 10);
 
         $orders = Order::where('users_id', auth()->id())
-            ->with(['product_variation.product'])
+            ->with([
+                'product_variation.product',
+                'users'
+            ])
             ->orderBy('created_at', 'desc')
             ->paginate($limit);
 
