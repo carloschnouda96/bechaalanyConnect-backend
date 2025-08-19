@@ -16,7 +16,6 @@
 @endsection
 
 @section('dashboard-content')
-
     <div class="card mx-lg-5 mx-2 py-4">
         <div class="actions">
             @if ($page['add'] || !request()->get('admin')['admin_role_id'])
@@ -90,6 +89,13 @@
                 </div>
             </div>
         @endif
+
+        <div class="col-md-auto" style="padding-left:30px;">
+            <label style="font-weight:700">
+                <?php $total_profit = \App\Http\Controllers\Cms\OrdersController::calculateTotalProfit(); ?>
+                Total Profit : <span class="text-success" style="font-weight:700">{{ number_format($total_profit, 2) }} $</span>
+            </label>
+        </div>
         <div
             class="datatable-wrapper {{ $page['server_side_pagination'] ? 'table-responsive' : '' }} {{ count($filters) ? 'has-filters' : '' }}">
             <table

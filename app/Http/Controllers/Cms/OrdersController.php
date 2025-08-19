@@ -10,9 +10,32 @@ use App\Order;
 
 class OrdersController extends Controller
 {
+    /** @var CmsPageController */
+    protected $cmsPageController;
     public function __construct(CmsPageController $cmsPageController)
     {
         $this->cmsPageController = $cmsPageController;
+    }
+
+    /**
+     * Calculate total profit for all approved (successful) orders.
+     * Success status assumed to be statuses_id = 1.
+     * Profit per order = total_price - (cost_price * quantity).
+     * Uses a single aggregate query for efficiency.
+     *
+     * @return float
+     */
+    public static function calculateTotalProfit(): float
+    {
+        try {
+            $profit = Order::where('statuses_id', 1)
+                ->join('products_variations', 'orders.product_variation_id', '=', 'products_variations.id')
+                ->selectRaw('COALESCE(SUM(orders.total_price - (COALESCE(products_variations.cost_price,0) * COALESCE(orders.quantity,1))),0) as total_profit')
+                ->value('total_profit');
+            return (float) $profit;
+        } catch (\Throwable $e) {
+            return 0.0; // Fail safe
+        }
     }
 
     public function update(Request $request, $id)
