@@ -9,11 +9,11 @@ use Carbon\Carbon;
 
 
 
-class User extends Model
+class ProductPriceVariation extends Model
 {
 
 
-    protected $table = 'users';
+    protected $table = 'product_price_variations';
 
     protected $guarded = ['id'];
 
@@ -22,22 +22,29 @@ class User extends Model
     protected static function booted()
     {
         static::addGlobalScope('cms_draft_flag', function (Builder $builder) {
-            $builder->where('users.cms_draft_flag', '!=', 1);
+            $builder->where('product_price_variations.cms_draft_flag', '!=', 1);
         });
+    }
+    public function products_variations()
+    {
+        return $this->belongsTo('App\ProductsVariation');
     }
     public function user_types()
     {
         return $this->belongsTo('App\UserType');
     }
 
+    /**
+     * Scope: limit price variations to a specific user type id.
+     */
+    public function scopeForUserType(Builder $query, $userTypeId)
+    {
+        return $query->where('user_types_id', $userTypeId);
+    }
+
     /* Start custom functions */
 
-    public $with = ['orders', 'user_types.priceVariations'];
 
-    public function orders()
-    {
-        return $this->hasMany('App\Order', 'users_id');
-    }
 
     /* End custom functions */
 }

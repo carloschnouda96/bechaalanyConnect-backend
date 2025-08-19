@@ -38,7 +38,7 @@ class User extends Authenticatable
         'received_amount'
     ];
 
-    public $with = ['orders', 'credits', 'user_types'];
+    public $with = ['orders', 'credits', 'user_types.priceVariations'];
 
     public function orders()
     {

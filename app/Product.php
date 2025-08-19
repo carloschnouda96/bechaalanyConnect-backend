@@ -40,6 +40,10 @@ class Product extends Model  implements TranslatableContract
     {
         return $this->belongsTo('App\ProductType');
     }
+    public function variations()
+    {
+        return $this->hasMany(ProductsVariation::class, 'product_id');
+    }
 
     /* Start custom functions */
 
