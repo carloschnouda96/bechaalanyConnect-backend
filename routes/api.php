@@ -10,6 +10,7 @@ use App\Http\Controllers\auth\SocialiteController;
 use App\Http\Controllers\CategoryController;
 use App\Http\Controllers\ContactController;
 use App\Http\Controllers\CreditsController;
+use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\OrderController;
 use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SearchController;
@@ -81,6 +82,9 @@ Route::middleware('auth:sanctum')->group(function () {
 });
 
 Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function () {
+    //Get Dashboard Settings
+    Route::get('/dashboard-settings', [DashboardController::class, 'index']);
+
     //Get User Orders
     Route::get('/user/orders', [OrderController::class, 'getUserOrders']);
 
