@@ -71,17 +71,21 @@ Route::middleware('auth:sanctum')->group(function () {
         return $request->user();
     });
 
-    //Get User Orders
-    Route::get('/user/orders', [OrderController::class, 'getUserOrders']);
 
-    //Get User Credits
-    Route::get('/user/credits', [CreditsController::class, 'getUserCredits']);
 
     //Save Transfered User Transfer Credit Request
     Route::post('/transfer-credit-request', [CreditsController::class, 'transferCreditRequest']);
 
     //Logout
     Route::post('/logout', [SessionController::class, 'destroy']);
+});
+
+Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function () {
+    //Get User Orders
+    Route::get('/user/orders', [OrderController::class, 'getUserOrders']);
+
+    //Get User Credits
+    Route::get('/user/credits', [CreditsController::class, 'getUserCredits']);
 });
 
 
