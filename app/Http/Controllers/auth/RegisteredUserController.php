@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\auth;
 
 use App\Http\Controllers\Controller;
-use App\User;
+use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 
@@ -73,7 +73,7 @@ class RegisteredUserController extends Controller
         $email = $attributes['email'];
         $token = $attributes['token'];
         $code = $attributes['code'];
-    $user = \App\User::where('email', $email)->first();
+    $user = User::where('email', $email)->first();
         if ($user && ($user->verification_token == $token) && ($user->account_verification_code == $code)) {
             $user->update([
                 'email_verified' => 1,

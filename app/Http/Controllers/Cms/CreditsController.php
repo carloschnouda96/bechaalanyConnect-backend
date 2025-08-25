@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Hellotreedigital\Cms\Controllers\CmsPageController;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\NotificationController;
+use App\Models\User;
 
 class CreditsController extends Controller
 {
@@ -43,7 +44,7 @@ class CreditsController extends Controller
             return;
         }
         // Assuming: 1 = approved, 2 = pending, 3 = rejected
-    $user = \App\User::find($creditsTransfer->users_id);
+    $user = User::find($creditsTransfer->users_id);
         // Refund only if status changed from approved to pending or rejected
         if ($previousStatus == 1 && ($statusId == 2 || $statusId == 3)) {
             if ($user) {

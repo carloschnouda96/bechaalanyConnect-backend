@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\FixedSetting;
+use App\Models\User;
 use App\Order;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
@@ -55,7 +56,7 @@ class OrderController extends Controller
             'statuses_id' => 'numeric'
         ]);
 
-    $user = \App\User::find($validatedData['users_id']);
+    $user = User::find($validatedData['users_id']);
 
         if ($user->credits_balance < $validatedData['total_price']) {
             return response()->json(['message' => 'Not enough credits to place order'], 400);

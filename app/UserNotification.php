@@ -27,7 +27,7 @@ class UserNotification extends Model
     }
     public function users()
     {
-        return $this->belongsTo('App\User');
+        return $this->belongsTo('App\Models\User');
     }
     public function statuses()
     {
