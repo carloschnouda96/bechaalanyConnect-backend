@@ -74,6 +74,9 @@ Route::middleware('auth:sanctum')->group(function () {
     // Optional: Get all user notifications
     Route::get('/user/notifications', [NotificationController::class, 'getAllNotifications']);
 
+    Route::post('/user/notifications/{id}/acknowledge', [NotificationController::class, 'acknowledgeNotification']);
+
+
     // Optional: Mark specific notification as read
     Route::post('/user/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
 });

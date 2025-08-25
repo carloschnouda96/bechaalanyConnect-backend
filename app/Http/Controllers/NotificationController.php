@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use App\UserNotification;
 
 class NotificationController extends Controller
@@ -19,33 +20,76 @@ class NotificationController extends Controller
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
-        // Get unread credit notifications
-        $notifications = UserNotification::where('users_id', $user->id)
-            // ->where('type', 'credit_status_change')
-            ->where('read_at', null)
-            ->orderBy('created_at', 'desc')
-            ->get();
+        // Use database transaction to prevent race conditions
+        return DB::transaction(function () use ($user) {
+            // Get unread credit notifications with locking to prevent concurrent access
+            $notifications = UserNotification::where('users_id', $user->id)
+                ->where('read_at', null)
+                ->orderBy('created_at', 'desc')
+                ->lockForUpdate() // This prevents concurrent access to the same notifications
+                ->get();
 
-        $creditNotifications = [];
+            if ($notifications->isEmpty()) {
+                return response()->json([]);
+            }
 
-        foreach ($notifications as $notification) {
-            $data = json_decode($notification->data, true);
+            $creditNotifications = [];
+            $notificationIds = [];
 
-            $creditNotifications[] = [
-                'id' => $notification->id,
-                'type' => $this->mapStatusToNotificationType($data['new_status']),
-                'request_id' => $data['credits_transfer_id'],
-                'amount' => $data['amount'],
-                'message' => $data['message'] ?? null,
-                'created_at' => $notification->created_at,
-            ];
+            foreach ($notifications as $notification) {
+                $data = json_decode($notification->data, true);
 
-            // Mark as read
+                // Only include credit-related notifications
+                if (isset($data['credits_transfer_id'])) {
+                    $creditNotifications[] = [
+                        'id' => $notification->id,
+                        'type' => $this->mapStatusToNotificationType($data['new_status']),
+                        'request_id' => $data['credits_transfer_id'],
+                        'amount' => $data['amount'],
+                        'message' => $data['message'] ?? null,
+                        'created_at' => $notification->created_at,
+                    ];
+
+                    $notificationIds[] = $notification->id;
+                }
+            }
+
+            // Mark ALL fetched notifications as read in a single query (more efficient)
+            if (!empty($notificationIds)) {
+                UserNotification::whereIn('id', $notificationIds)
+                    ->update(['read_at' => now()]);
+            }
+
+            return response()->json($creditNotifications);
+        });
+    }
+
+    /**
+     * Acknowledge a specific notification (optional endpoint for extra safety)
+     * Route: POST /user/notifications/{id}/acknowledge
+     */
+    public function acknowledgeNotification(Request $request, $notificationId)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['error' => 'Unauthorized'], 401);
+        }
+
+        $notification = UserNotification::where('id', $notificationId)
+            ->where('users_id', $user->id)
+            ->first();
+
+        if (!$notification) {
+            return response()->json(['error' => 'Notification not found'], 404);
+        }
+
+        // Mark as read if not already
+        if ($notification->read_at === null) {
             $notification->read_at = now();
             $notification->save();
         }
 
-        return response()->json($creditNotifications);
+        return response()->json(['message' => 'Notification acknowledged']);
     }
 
     /**
