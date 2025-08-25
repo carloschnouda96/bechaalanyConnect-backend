@@ -56,7 +56,7 @@ class CreditsController extends Controller
         $validatedData = $request->validate([
             'users_id' => 'required|exists:users,id',
             'amount' => 'required|numeric|min:1',
-            'receipt_image' => 'image|mimes:jpeg,png,jpg,gif',
+            'receipt_image' => 'image|mimes:jpeg,png,jpg,gif,svg',
             'credits_types_id' => 'required|exists:credits_types,id',
             'statuses_id' => 'numeric'
         ]);

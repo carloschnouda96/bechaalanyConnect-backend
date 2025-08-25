@@ -16,6 +16,7 @@ use App\Http\Controllers\ProductController;
 use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SessionController;
 use App\Http\Controllers\SubcategoryController;
+use App\Http\Controllers\NotificationController;
 
 /*
 |--------------------------------------------------------------------------
@@ -42,7 +43,7 @@ Route::post('/register', [RegisteredUserController::class, 'store']);
 Route::post('/verify-email', [RegisteredUserController::class, 'verifyEmail']);
 Route::post('/resend-verification-code', [RegisteredUserController::class, 'verifyEmailSendNewCode']);
 
-Route::post('/login', [SessionController::class, 'store']);
+// Route::post('/login', [SessionController::class, 'store']);
 
 //Password Reset Routes
 Route::post('/forgot-password', [RegisteredUserController::class, 'forgotPasswordSendEmail']);
@@ -54,9 +55,44 @@ Route::post('/contact-form-submit', [ContactController::class, 'submit']);
 //Save Order Route
 Route::post('/save-order', [OrderController::class, 'saveOrder']);
 
+
 // Authenticated user routes
 Route::middleware('auth:sanctum')->group(function () {
-    // Get User Profile
+
+    Route::get('/user', function (Request $request) {
+        return $request->user();
+    });
+
+
+
+    //Save Transfered User Transfer Credit Request
+    Route::post('/transfer-credit-request', [CreditsController::class, 'transferCreditRequest']);
+
+    // Get credit notifications for the authenticated user
+    Route::get('/user/notifications/credits', [NotificationController::class, 'getCreditNotifications']);
+
+    // Optional: Get all user notifications
+    Route::get('/user/notifications', [NotificationController::class, 'getAllNotifications']);
+
+    // Optional: Mark specific notification as read
+    Route::post('/user/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
+});
+
+// Locale-aware auth routes (duplicate endpoints with {locale} prefix so models translate correctly)
+Route::middleware('locale')->prefix('{locale}')->group(function () {
+    // Login with locale
+    Route::post('/login', [SessionController::class, 'store']);
+});
+
+Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function () {
+
+    //Get User Orders
+    Route::get('/user/orders', [OrderController::class, 'getUserOrders']);
+
+    //Get User Credits
+    Route::get('/user/credits', [CreditsController::class, 'getUserCredits']);
+
+    // Get User Profile (locale-aware)
     Route::get('/user/profile', function (Request $request) {
         return response()->json([
             'user' => $request->user(),
@@ -68,33 +104,20 @@ Route::middleware('auth:sanctum')->group(function () {
         ]);
     });
 
-    Route::get('/user', function (Request $request) {
-        return $request->user();
-    });
-
-
-
-    //Save Transfered User Transfer Credit Request
-    Route::post('/transfer-credit-request', [CreditsController::class, 'transferCreditRequest']);
-
-    //Logout
+    // Logout (locale-aware)
     Route::post('/logout', [SessionController::class, 'destroy']);
-});
 
-Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function () {
-    //Get Dashboard Settings
-    Route::get('/dashboard-settings', [DashboardController::class, 'index']);
-
-    //Get User Orders
-    Route::get('/user/orders', [OrderController::class, 'getUserOrders']);
-
-    //Get User Credits
-    Route::get('/user/credits', [CreditsController::class, 'getUserCredits']);
+    //update user profile
+    Route::put('/user/update', [SessionController::class, 'updateProfile']);
 });
 
 
 //Global api Routes
 Route::middleware('locale')->prefix('{locale}')->group(function () {
+
+    //Get Dashboard Settings
+    Route::get('/dashboard-settings', [DashboardController::class, 'index']);
+
     //General Route
     Route::get('/general', [GeneralController::class, 'index']);
 

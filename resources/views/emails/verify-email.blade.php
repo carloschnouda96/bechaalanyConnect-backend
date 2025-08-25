@@ -1,6 +1,6 @@
-<h2>Dear {{ $request['username'] }},</h2>
+<h2>{{ __('emails.verify_email.greeting', ['name' => $user['username'] ?? ($username ?? 'User')]) }}</h2>
 <br>
-This is your verification code:
+{{ __('emails.verify_email.intro') }}
 <br>
 <h1>{{ $account_verification_code }}</h1>
 

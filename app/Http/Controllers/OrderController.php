@@ -40,6 +40,10 @@ class OrderController extends Controller
 
     public function saveOrder(Request $request)
     {
+        $requestedLocale = $request->get('lang') ?? $request->getPreferredLanguage(['en', 'ar']);
+        if (in_array($requestedLocale, ['en', 'ar'])) {
+            app()->setLocale($requestedLocale);
+        }
         // Validate and process the order data
         $validatedData = $request->validate([
             'product_variation_id' => 'required|exists:products_variations,id',
@@ -51,7 +55,7 @@ class OrderController extends Controller
             'statuses_id' => 'numeric'
         ]);
 
-        $user = \App\Models\User::find($validatedData['users_id']);
+    $user = \App\User::find($validatedData['users_id']);
 
         if ($user->credits_balance < $validatedData['total_price']) {
             return response()->json(['message' => 'Not enough credits to place order'], 400);
@@ -78,8 +82,8 @@ class OrderController extends Controller
         }
 
         //Send email to the admin to approve the order
-        Mail::send('emails.order-request', compact('order'), function ($message) use ($admin_email) {
-            $message->to($admin_email)->subject('New Order Request');
+        Mail::send('emails.order-request', compact('order', 'requestedLocale'), function ($message) use ($admin_email) {
+            $message->to($admin_email)->subject(__('emails.subjects.new_order'));
         });
 
         return response()->json($order, 201);

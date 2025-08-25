@@ -26,6 +26,10 @@ class ContactController extends Controller
 
     public function submit(Request $request)
     {
+        $requestedLocale = $request->get('lang') ?? $request->getPreferredLanguage(['en', 'ar']);
+        if (in_array($requestedLocale, ['en', 'ar'])) {
+            app()->setLocale($requestedLocale);
+        }
         $admin_email = FixedSetting::first()->admin_email;
 
         $request->validate([
@@ -44,7 +48,7 @@ class ContactController extends Controller
         $contact_form->message = $request->message;
         $contact_form->save();
 
-        Mail::send('emails.contact-request', compact('contact_form'), function ($message) use ($contact_form, $admin_email) {
+    Mail::send('emails.contact-request', compact('contact_form', 'requestedLocale'), function ($message) use ($contact_form, $admin_email) {
             $message->to($admin_email)->subject($contact_form->subject);
         });
 

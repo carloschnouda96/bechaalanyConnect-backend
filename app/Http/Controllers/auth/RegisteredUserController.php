@@ -3,7 +3,7 @@
 namespace App\Http\Controllers\auth;
 
 use App\Http\Controllers\Controller;
-use App\Models\User;
+use App\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
 
@@ -16,6 +16,11 @@ class RegisteredUserController extends Controller
 
     public function store(Request $request)
     {
+        // Ensure locale is set for this request if passed (query/header) for email language
+        $requestedLocale = $request->get('lang') ?? $request->getPreferredLanguage(['en', 'ar']);
+        if (in_array($requestedLocale, ['en', 'ar'])) {
+            app()->setLocale($requestedLocale);
+        }
 
         // dd($request);
         $email_confirmation_token = bin2hex(random_bytes(16));
@@ -51,7 +56,7 @@ class RegisteredUserController extends Controller
         $confirm_email_url = env('APP_FRONT_URL') . '/email-verification/' . $user->email . '/' . $email_confirmation_token;
         try {
             Mail::send('emails.verify-email', compact('account_verification_code', 'request'), function ($message) use ($request) {
-                $message->to($request['email'])->subject('Email Confirmation');
+                $message->to($request['email'])->subject(__('emails.subjects.verify_email'));
             });
         } catch (\Exception $e) {
             return response()->json(['error' => 'Failed to send verification email.'], 500);
@@ -68,7 +73,7 @@ class RegisteredUserController extends Controller
         $email = $attributes['email'];
         $token = $attributes['token'];
         $code = $attributes['code'];
-        $user = \App\Models\User::where('email', $email)->first();
+    $user = \App\User::where('email', $email)->first();
         if ($user && ($user->verification_token == $token) && ($user->account_verification_code == $code)) {
             $user->update([
                 'email_verified' => 1,
@@ -83,19 +88,23 @@ class RegisteredUserController extends Controller
 
     public function verifyEmailSendNewCode(Request $request)
     {
+        $requestedLocale = $request->get('lang') ?? $request->getPreferredLanguage(['en', 'ar']);
+        if (in_array($requestedLocale, ['en', 'ar'])) {
+            app()->setLocale($requestedLocale);
+        }
         $request->validate([
             'email' => ['required', 'email', 'max:255']
         ]);
         $user = User::where('email', $request['email'])->first();
         if ($user && $user->account_verification_code !== null) {
-            return response()->json(['error' => 'You already have a verification code. Please check your email.'], 404);
+            return response()->json(['message' => $requestedLocale == 'ar' ? 'لديك بالفعل رمز تحقق. يرجى التحقق من بريدك الإلكتروني.' : 'You already have a verification code. Please check your email.'], 404);
         } else {
             $account_verification_code = random_int(100000, 999999);
             $user->account_verification_code = $account_verification_code;
             $user->save();
             try {
-                Mail::send('emails.verify-email', compact('account_verification_code', 'request'), function ($message) use ($request) {
-                    $message->to($request['email'])->subject('Email Confirmation');
+                Mail::send('emails.verify-email', compact('account_verification_code', 'user'), function ($message) use ($request) {
+                    $message->to($request['email'])->subject(__('emails.subjects.verify_email'));
                 });
             } catch (\Exception $e) {
             }
@@ -113,7 +122,13 @@ class RegisteredUserController extends Controller
 
     public function forgotPasswordSendEmail()
     {
-        $attributes = request()->validate([
+        $request = request();
+        $requestedLocale = $request->get('lang') ?? $request->getPreferredLanguage(['en', 'ar']);
+        if (in_array($requestedLocale, ['en', 'ar'])) {
+            app()->setLocale($requestedLocale);
+        }
+
+        $attributes = $request->validate([
             'email' => ['required', 'email', 'max:255']
         ]);
         $user = User::where('email', $attributes['email'])->first();
@@ -124,7 +139,7 @@ class RegisteredUserController extends Controller
             $reset_password_url = env('APP_URL') . '/reset-password/' . $attributes['email'] . '/' . $password_reset_token;
             try {
                 Mail::send('emails.forgot-password', compact('reset_password_url', 'attributes'), function ($message) use ($attributes) {
-                    $message->to($attributes['email'])->subject('Reset Password');
+                    $message->to($attributes['email'])->subject(__('emails.subjects.reset_password'));
                 });
             } catch (\Exception $e) {
                 return response()->json(['error' => 'Failed to send reset email.'], 500);

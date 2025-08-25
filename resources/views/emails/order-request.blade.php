@@ -1,18 +1,27 @@
 <html>
 
-    <body>
-        <h2><b>Hello Admin: </b></h2>
-        <h4><b>You Have Received A New Order : </b></h4>
-        <p><b>User Details:</b></p>
-        <p><b>Full Name: </b>{{ $order->users->username }}</p>
-        <p><b>Email: </b>{{ $order->users->email }}</p>
-        <p><b>Phone Number: </b>{{ $order->users->phone_number }}</p>
+    <body align={{ $requestedLocale == 'ar' ? 'right' : 'left' }}>
+        <h2><b>{{ __('emails.order_request.hello_admin') }} </b></h2>
+        <h4><b>{{ __('emails.order_request.received_new_order') }} </b></h4>
+        <p><b>{{ __('emails.order_request.user_details') }}</b></p>
+        <p><b>{{ __('emails.order_request.fields.full_name') }} </b>{{ $order->users->username }}</p>
+        @if ($requestedLocale == 'ar')
+            <p>{{ $order->users->email }} <b>{{ __('emails.order_request.fields.email') }} </b></p>
+        @else
+            <p><b>{{ __('emails.order_request.fields.email') }} </b>{{ $order->users->email }}</p>
+        @endif
+        <p><b>{{ __('emails.order_request.fields.phone') }} </b>{{ $order->users->phone_number }}</p>
         <br>
-        <p><b>Order Details:</b></p>
-        <p><b>Order ID: </b>{{ $order->id }}</p>
-        <p><b>Product Name: </b>{{ $order->product_variation->product->name }} {{ $order->product_variation->name }}</p>
-        <p><b>Quantity: </b>{{ $order->quantity }}</p>
-        <p><b>Price: </b>{{ $order->total_price }}$</p>
+        <p><b>{{ __('emails.order_request.order_details') }}</b></p>
+        <p><b>{{ __('emails.order_request.fields.order_id') }} </b>{{ $order->id }}</p>
+        <p><b>{{ __('emails.order_request.fields.product_name') }} </b> <br>
+            {{ $order->product_variation->product->name }} | {{ $order->product_variation->name }}</p>
+        <p><b>{{ __('emails.order_request.fields.quantity') }} </b>{{ $order->quantity }}</p>
+        @if ($requestedLocale == 'ar')
+            <p><b>{{ __('emails.order_request.fields.price') }} </b>$ {{ $order->total_price }} </p>
+        @else
+            <p><b>{{ __('emails.order_request.fields.price') }} </b>{{ $order->total_price }} $</p>
+        @endif
         <br>
         <br>
     </body>

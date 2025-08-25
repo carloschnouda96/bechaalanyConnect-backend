@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Country;
 use App\FixedSetting;
+use App\LoggingPagesSetting;
 use App\MenuItem;
 use App\SocialMediaLink;
 use App\UserType;
@@ -19,12 +20,12 @@ class GeneralController extends Controller
     public function index()
     {
         $settings =  FixedSetting::firstOrFail();
-        // $menu_items = MenuItem::orderBy('ht_pos')->get()->keyBy('slug');
         $menu_items = MenuItem::orderBy('ht_pos')->get();
         $social_links = SocialMediaLink::orderBy('ht_pos')->get();
         $locale = Language::get()->keyBy('slug');
         $user_types = UserType::orderBy('ht_pos')->get();
         $countries = Country::orderBy('ht_pos')->get();
+        $logging_page_settings = LoggingPagesSetting::firstOrFail();
 
         return response()->json([
             'settings' => $settings,
@@ -32,7 +33,8 @@ class GeneralController extends Controller
             'social_links' => $social_links,
             'locale' => $locale,
             'user_types' => $user_types,
-            'countries' => $countries
+            'countries' => $countries,
+            'logging_page_settings' => $logging_page_settings
         ]);
     }
 

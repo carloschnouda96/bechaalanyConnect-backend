@@ -1,18 +1,22 @@
 <html>
 
-<body>
-    <h2><b>Hello Admin: </b></h2>
-    <h4><b>You Have Received A New Email : </b></h4>
+    <body align={{ $requestedLocale == 'ar' ? 'right' : 'left' }}>
+        <h2><b>{{ __('emails.contact_request.hello_admin') }} </b></h2>
+        <h4><b>{{ __('emails.contact_request.received_new_email') }} </b></h4>
 
-    <br><br>
+        <br><br>
 
-    <p><b>Full Name: </b>{{ $contact_form->name }}</p>
-    <p><b>Email: </b>{{ $contact_form->email }}</p>
-    <p><b>Phone Number: </b>{{ $contact_form->phone }}</p>
-    <p><b>Subject: </b>{{ $contact_form->subject }}</p>
-    <p><b>Message: </b>{{ $contact_form->message }}</p>
+        <p><b>{{ __('emails.contact_request.fields.full_name') }} </b>{{ $contact_form->name }}</p>
+        @if ($requestedLocale == 'ar')
+            <p><b>{{ $contact_form->email }} {{ __('emails.contact_request.fields.email') }} </b></p>
+        @else
+            <p><b>{{ __('emails.contact_request.fields.email') }} </b>{{ $contact_form->email }}</p>
+        @endif
+        <p><b>{{ __('emails.contact_request.fields.phone') }} </b>{{ $contact_form->phone }}</p>
+        <p><b>{{ __('emails.contact_request.fields.subject') }} </b>{{ $contact_form->subject }}</p>
+        <p><b>{{ __('emails.contact_request.fields.message') }} </b>{{ $contact_form->message }}</p>
 
-    <br><br>
-</body>
+        <br><br>
+    </body>
 
 </html>

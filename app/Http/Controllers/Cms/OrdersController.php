@@ -5,7 +5,7 @@ namespace App\Http\Controllers\Cms;
 use Illuminate\Http\Request;
 use Hellotreedigital\Cms\Controllers\CmsPageController;
 use App\Http\Controllers\Controller;
-use App\Models\User;
+use App\User;
 use App\Order;
 
 class OrdersController extends Controller

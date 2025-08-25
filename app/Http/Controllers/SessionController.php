@@ -15,28 +15,65 @@ class SessionController extends Controller
 
     public function store()
     {
+        // Prefer locale from route {locale}, then ?lang, then Accept-Language
+        $routeLocale = request()->route('locale');
+        $requestedLocale = $routeLocale ?: (request()->get('lang') ?? request()->getPreferredLanguage(['en', 'ar']));
+        if ($requestedLocale && in_array($requestedLocale, ['en', 'ar'])) {
+            app()->setLocale($requestedLocale);
+        }
+
         $attributes = request()->validate([
             'email' => ['required', 'email'],
             'password' => ['required'],
         ]);
         if (! Auth::attempt($attributes)) {
-            return response()->json(['message' => 'Your Email or Password is incorrect.'], 401);
+            return response()->json(['message' => __('auth.failed')], 401);
         }
+    /** @var \App\User $user */
         $user = Auth::user();
         if (! $user->email_verified) {
-            return response()->json(['message' => 'Please verify your email.'], 403);
+            return response()->json(['message' => __('auth.unverified')], 403);
         }
         $token = $user->createToken('api-token')->plainTextToken;
+        // Reload relations so translatable fields (like user_types.title) resolve in the current locale
+        $user->loadMissing(['orders', 'credits', 'user_types.priceVariations']);
         return response()->json(['token' => $token, 'user' => $user], 200);
     }
 
     public function destroy()
     {
+    /** @var \App\User|null $user */
         $user = Auth::user();
         if ($user) {
             $user->tokens()->delete(); // deletes all tokens for the user
         }
         Auth::logout();
         return response()->json(['message' => 'Logged out successfully.'], 200);
+    }
+
+    public function updateProfile(Request $request)
+    {
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.'], 401);
+        }
+
+        $validatedData = $request->validate([
+            'username' => 'sometimes|required|string|min:3',
+            'country' => 'sometimes|nullable|string|max:255',
+            'phone_number' => 'sometimes|nullable|string|max:20',
+            'is_business_user' => 'sometimes|boolean',
+            'business_name' => 'sometimes|nullable|string|max:255',
+            'business_location' => 'sometimes|nullable|string|max:255',
+            'user_types_id' => 'sometimes|nullable|exists:user_types,id',
+        ]);
+
+        // Update user with validated data
+        $user->update($validatedData);
+
+        // Reload relations so translatable fields (like user_types.title) resolve in the current locale
+        $user->loadMissing(['orders', 'credits', 'user_types.priceVariations']);
+
+        return response()->json(['message' => 'Profile updated successfully.', 'user' => $user], 200);
     }
 }
