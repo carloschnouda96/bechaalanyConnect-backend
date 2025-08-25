@@ -4,7 +4,7 @@ namespace App\Http\Controllers\auth;
 
 
 use App\Http\Controllers\Controller;
-use App\User;
+use App\Models\User;
 use Laravel\Socialite\Facades\Socialite;
 use Illuminate\Http\Request;
 

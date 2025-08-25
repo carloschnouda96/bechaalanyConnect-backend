@@ -29,7 +29,7 @@ class SessionController extends Controller
         if (! Auth::attempt($attributes)) {
             return response()->json(['message' => __('auth.failed')], 401);
         }
-    /** @var \App\User $user */
+        /** @var \App\Models\User $user */
         $user = Auth::user();
         if (! $user->email_verified) {
             return response()->json(['message' => __('auth.unverified')], 403);
@@ -42,7 +42,7 @@ class SessionController extends Controller
 
     public function destroy()
     {
-    /** @var \App\User|null $user */
+        /** @var \App\Models\User|null $user */
         $user = Auth::user();
         if ($user) {
             $user->tokens()->delete(); // deletes all tokens for the user
