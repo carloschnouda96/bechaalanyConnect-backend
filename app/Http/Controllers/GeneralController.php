@@ -34,7 +34,7 @@ class GeneralController extends Controller
             'locale' => $locale,
             'user_types' => $user_types,
             'countries' => $countries,
-            'logging_page_settings' => $logging_page_settings
+            'logging_page_settings' => $logging_page_settings,
         ]);
     }
 
