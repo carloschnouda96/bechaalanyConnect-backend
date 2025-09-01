@@ -19,7 +19,7 @@ class FixedSetting extends Model  implements TranslatableContract
 
     protected $hidden = ['translations'];
 
-    public $translatedAttributes = ["create_account_button","login_button","footer_copyright","categories_label","homepage_label","back_button_label"];
+    public $translatedAttributes = ["create_account_button","login_button","footer_copyright","categories_label","homepage_label","back_button_label","amount","quantity","total","related_products","user_id_label","user_id_placeholder","phone_number_label","phone_number_placeholder","buy_now_button"];
 
 	protected static function booted(){static::addGlobalScope('cms_draft_flag', function (Builder $builder) {$builder->where('fixed_settings.cms_draft_flag', '!=', 1);});}
 
