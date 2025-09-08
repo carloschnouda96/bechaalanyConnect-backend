@@ -43,12 +43,6 @@ Route::post('/register', [RegisteredUserController::class, 'store']);
 Route::post('/verify-email', [RegisteredUserController::class, 'verifyEmail']);
 Route::post('/resend-verification-code', [RegisteredUserController::class, 'verifyEmailSendNewCode']);
 
-// Route::post('/login', [SessionController::class, 'store']);
-
-//Password Reset Routes
-Route::post('/forgot-password', [RegisteredUserController::class, 'forgotPasswordSendEmail']);
-Route::post('/reset-password', [RegisteredUserController::class, 'resetPasswordSendEmail']);
-
 //Contact Form Routes
 Route::post('/contact-form-submit', [ContactController::class, 'submit']);
 
@@ -153,4 +147,8 @@ Route::middleware('locale')->prefix('{locale}')->group(function () {
 
     //Get single Credit Type
     Route::get('/credit-types/{slug}', [CreditsController::class, 'getSingleCreditType']);
+
+    //Password Reset Routes
+    Route::post('/forgot-password', [RegisteredUserController::class, 'forgotPasswordSendEmail']);
+    Route::post('/reset-password', [RegisteredUserController::class, 'resetPasswordSendEmail']);
 });
