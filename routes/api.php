@@ -50,6 +50,8 @@ Route::post('/contact-form-submit', [ContactController::class, 'submit']);
 Route::post('/save-order', [OrderController::class, 'saveOrder']);
 
 
+
+
 // Authenticated user routes
 Route::middleware('auth:sanctum')->group(function () {
 
@@ -57,19 +59,16 @@ Route::middleware('auth:sanctum')->group(function () {
         return $request->user();
     });
 
+    // Delete single notification
+    Route::delete('/user/notifications/{id}', [NotificationController::class, 'deleteNotification']);
 
+    // Delete all read notifications
+    Route::delete('/user/notifications/delete-read', [NotificationController::class, 'deleteAllRead']);
 
     //Save Transfered User Transfer Credit Request
     Route::post('/transfer-credit-request', [CreditsController::class, 'transferCreditRequest']);
 
-    // Get credit notifications for the authenticated user
-    Route::get('/user/notifications/credits', [NotificationController::class, 'getCreditNotifications']);
-
-    // Optional: Get all user notifications
-    Route::get('/user/notifications', [NotificationController::class, 'getAllNotifications']);
-
     Route::post('/user/notifications/{id}/acknowledge', [NotificationController::class, 'acknowledgeNotification']);
-
 
     // Optional: Mark specific notification as read
     Route::post('/user/notifications/{id}/read', [NotificationController::class, 'markAsRead']);
@@ -100,6 +99,15 @@ Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function 
             'received_amount' => $request->user()->received_amount,
         ]);
     });
+
+    // Get credit notifications for the authenticated user
+    Route::get('/user/notifications/credits', [NotificationController::class, 'getCreditNotifications']);
+
+    //Get all user notifications
+    Route::get('/user/notifications', [NotificationController::class, 'getAllNotifications']);
+
+    // Polling endpoint (doesn't mark as read)
+    Route::get('/user/notifications/poll', [NotificationController::class, 'getNotificationsForPolling']);
 
     // Logout (locale-aware)
     Route::post('/logout', [SessionController::class, 'destroy']);
