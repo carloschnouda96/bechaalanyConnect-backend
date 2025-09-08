@@ -114,6 +114,9 @@ Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function 
 
     //update user profile
     Route::put('/user/update', [SessionController::class, 'updateProfile']);
+
+    //Change User Password
+    Route::put('/change-password', [SessionController::class, 'changePassword']);
 });
 
 

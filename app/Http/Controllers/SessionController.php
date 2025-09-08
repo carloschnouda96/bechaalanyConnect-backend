@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
 
 class SessionController extends Controller
@@ -75,5 +76,35 @@ class SessionController extends Controller
         $user->loadMissing(['orders', 'credits', 'user_types.priceVariations']);
 
         return response()->json(['message' => 'Profile updated successfully.', 'user' => $user], 200);
+    }
+
+    public function changePassword(Request $request)
+    {
+        // Set locale first, before any validation or processing
+        $requestedLocale = request()->route('locale');
+        if ($requestedLocale && in_array($requestedLocale, ['en', 'ar'])) {
+            app()->setLocale($requestedLocale);
+        }
+
+        $user = Auth::user();
+        if (!$user) {
+            return response()->json(['message' => __('auth.unauthenticated')], 401);
+        }
+
+        $validatedData = $request->validate([
+            'current_password' => 'required|string',
+            'new_password' => 'required|string|min:8|different:current_password|confirmed',
+        ]);
+
+        // Check if current password matches
+        if (!Hash::check($validatedData['current_password'], $user->password)) {
+            return response()->json(['message' => __('auth.password_incorrect')], 400);
+        }
+
+        // Update password
+        $user->password = Hash::make($validatedData['new_password']);
+        $user->save();
+
+        return response()->json(['message' => __('auth.password_changed')], 200);
     }
 }
