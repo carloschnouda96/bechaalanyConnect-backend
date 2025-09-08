@@ -8,6 +8,7 @@ use Hellotreedigital\Cms\Controllers\CmsPageController;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\NotificationController;
 use App\Models\User;
+use Illuminate\Support\Facades\Mail;
 
 class CreditsController extends Controller
 {
@@ -21,6 +22,10 @@ class CreditsController extends Controller
 
     public function update(Request $request, $id)
     {
+        $requestedLocale = $request->get('lang') ?? $request->getPreferredLanguage(['en', 'ar']);
+        if (in_array($requestedLocale, ['en', 'ar'])) {
+            app()->setLocale($requestedLocale);
+        }
         // Get the credits transfer before updating to check previous status
         $creditsTransfer = CreditsTransfer::find($id);
         $previousStatus = $creditsTransfer ? $creditsTransfer->statuses_id : null;
@@ -28,7 +33,7 @@ class CreditsController extends Controller
         $this->cmsPageController->update($request, $id, 'credits-transfer', 'App\CreditsTransfer', 'App\Http\Controllers\Cms\CreditsController');
 
         //Update User credits_balance and total_purchases if CreditsTransfer approved
-        $this->updateUserCredits($id, $request->statuses_id, $previousStatus);
+        $this->updateUserCredits($id, $request->statuses_id, $previousStatus, $requestedLocale);
 
         // Create notification for status change
         $this->createStatusChangeNotification($id, $request->statuses_id, $previousStatus);
@@ -37,14 +42,14 @@ class CreditsController extends Controller
         return url(config('hellotree.cms_route_prefix') . '/credits-transfer');
     }
 
-    private function updateUserCredits($creditsTransferId, $statusId, $previousStatus = null)
+    private function updateUserCredits($creditsTransferId, $statusId, $previousStatus = null, $requestedLocale = null)
     {
         $creditsTransfer = CreditsTransfer::find($creditsTransferId);
         if (!$creditsTransfer) {
             return;
         }
         // Assuming: 1 = approved, 2 = pending, 3 = rejected
-    $user = User::find($creditsTransfer->users_id);
+        $user = User::find($creditsTransfer->users_id);
         // Refund only if status changed from approved to pending or rejected
         if ($previousStatus == 1 && ($statusId == 2 || $statusId == 3)) {
             if ($user) {
@@ -61,6 +66,11 @@ class CreditsController extends Controller
                 $user->received_amount += $creditsTransfer->amount;
                 $user->save();
             }
+
+            Mail::send('emails.credits_approved', ['user' => $user, 'amount' => $creditsTransfer->amount], function ($message) use ($user) {
+                $message->to($user->email);
+                $message->subject('Your credits request has been approved');
+            });
         }
     }
 

@@ -31,6 +31,12 @@ return [
             'price' => 'Price:',
         ],
     ],
+    'credits_approved' => [
+        'greeting' => 'Dear :name,',
+        'intro' => 'Your credits request has been approved for the amount:',
+        'body_2' => 'Thank you for using our service!',
+        'closing' => 'Best regards, The Team',
+    ],
     'contact_request' => [
         'hello_admin' => 'Hello Admin:',
         'received_new_email' => 'You Have Received A New Email :',
