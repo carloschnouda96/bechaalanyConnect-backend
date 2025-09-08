@@ -16,6 +16,11 @@ return [
         'body_2' => 'Kindly reset your password by clicking on the following button :',
         'button' => 'Reset Password',
     ],
+    'password_changed' => [
+        'greeting' => 'Dear :name,',
+        'body' => 'Your password has been changed successfully.',
+        'closing' => 'If you did not make this change, please contact support.',
+    ],
     'order_request' => [
         'hello_admin' => 'Hello Admin:',
         'received_new_order' => 'You Have Received A New Order :',

@@ -73,7 +73,7 @@ class RegisteredUserController extends Controller
         $email = $attributes['email'];
         $token = $attributes['token'];
         $code = $attributes['code'];
-    $user = User::where('email', $email)->first();
+        $user = User::where('email', $email)->first();
         if ($user && ($user->verification_token == $token) && ($user->account_verification_code == $code)) {
             $user->update([
                 'email_verified' => 1,
@@ -136,7 +136,7 @@ class RegisteredUserController extends Controller
             $password_reset_token = bin2hex(random_bytes(16));
             $user->password_reset_token = $password_reset_token;
             $user->save();
-            $reset_password_url = env('APP_URL') . '/reset-password/' . $attributes['email'] . '/' . $password_reset_token;
+            $reset_password_url = env('APP_FRONT_URL') . '/' . $requestedLocale . '/reset-password/' . $attributes['email'] . '/' . $password_reset_token;
             try {
                 Mail::send('emails.forgot-password', compact('reset_password_url', 'attributes'), function ($message) use ($attributes) {
                     $message->to($attributes['email'])->subject(__('emails.subjects.reset_password'));
@@ -150,18 +150,23 @@ class RegisteredUserController extends Controller
         }
     }
 
-    public function resetPassword($email, $token)
-    {
-        $user = User::where('email', $email)->first();
-        if ($user && ($user->password_reset_token == $token)) {
-            return response()->json(['message' => 'Token valid. You can reset your password.', 'email' => $email, 'token' => $token], 200);
-        }
-        return response()->json(['error' => 'Password reset failed.'], 400);
-    }
+    // public function resetPassword($email, $token)
+    // {
+    //     $user = User::where('email', $email)->first();
+    //     if ($user && ($user->password_reset_token == $token)) {
+    //         return response()->json(['message' => 'Token valid. You can reset your password.', 'email' => $email, 'token' => $token], 200);
+    //     }
+    //     return response()->json(['error' => 'Password reset failed.'], 400);
+    // }
 
     public function resetPasswordSendEmail()
     {
-        $attributes = request()->validate([
+        $request = request();
+        $requestedLocale = $request->get('lang') ?? $request->getPreferredLanguage(['en', 'ar']);
+        if (in_array($requestedLocale, ['en', 'ar'])) {
+            app()->setLocale($requestedLocale);
+        }
+        $attributes = $request->validate([
             'email' => ['required', 'email', 'max:255'],
             'password' => ['required', 'confirmed', \Illuminate\Validation\Rules\Password::min(6)]
         ]);
@@ -172,6 +177,9 @@ class RegisteredUserController extends Controller
                 'password_reset_token' => null
             ]);
             $token = $user->createToken('api-token')->plainTextToken;
+            Mail::send('emails.password-changed', compact('user'), function ($message) use ($attributes) {
+                $message->to($attributes['email'])->subject('Password Changed Successfully');
+            });
             return response()->json(['message' => 'Password reset successfully.', 'token' => $token, 'user' => $user], 200);
         }
         return response()->json(['error' => 'Password reset failed.'], 400);
