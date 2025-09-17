@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Log;
 
 class RegisteredUserController extends Controller
 {
@@ -55,11 +56,12 @@ class RegisteredUserController extends Controller
         ]);
         $confirm_email_url = env('APP_FRONT_URL') . '/email-verification/' . $user->email . '/' . $email_confirmation_token;
         try {
-            Mail::send('emails.verify-email', compact('account_verification_code', 'request'), function ($message) use ($request) {
+            Mail::send('emails.verify-email', compact('account_verification_code', 'user'), function ($message) use ($request) {
                 $message->to($request['email'])->subject(__('emails.subjects.verify_email'));
             });
         } catch (\Exception $e) {
-            return response()->json(['error' => 'Failed to send verification email.'], 500);
+            Log::error('Email sending failed: ' . $e->getMessage());
+            return response()->json(['error' => 'Failed to send verification email: ' . $e->getMessage()], 500);
         }
         return response()->json([
             'message' => 'Registration successful. Please verify your email.',
