@@ -4,7 +4,9 @@ namespace App\Http\Controllers;
 
 use App\CreditsTransfer;
 use App\CreditsType;
+use App\FixedSetting;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Mail;
 
 class CreditsController extends Controller
 {
@@ -49,6 +51,8 @@ class CreditsController extends Controller
     //Handle transfer credit request
     public function transferCreditRequest(Request $request)
     {
+        $admin_email = FixedSetting::first()->admin_email;
+
         //get Current User
         $user = $request->user();
 
@@ -71,6 +75,10 @@ class CreditsController extends Controller
         $transferRequest->credits_types_id = $request->credits_types_id; // Assuming this is passed in the request
         $transferRequest->statuses_id = $validatedData['statuses_id'];
         $transferRequest->save();
+
+        Mail::send('emails.admin-new-credit-transfer-request', compact('user', 'transferRequest'), function ($message) use ($user, $admin_email) {
+            $message->to($admin_email)->subject('New Credit Transfer Request from ' . $user->username);
+        });
 
 
         return response()->json([
