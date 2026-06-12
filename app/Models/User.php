@@ -12,6 +12,19 @@ class User extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
+    // KYC verification statuses (verification_statuses table)
+    const VERIFICATION_UNSUBMITTED = 1;
+    const VERIFICATION_PENDING = 2;
+    const VERIFICATION_APPROVED = 3;
+    const VERIFICATION_REJECTED = 4;
+
+    const VERIFICATION_STATUS_SLUGS = [
+        self::VERIFICATION_UNSUBMITTED => 'unsubmitted',
+        self::VERIFICATION_PENDING => 'pending',
+        self::VERIFICATION_APPROVED => 'approved',
+        self::VERIFICATION_REJECTED => 'rejected',
+    ];
+
     /**
      * The attributes that are mass assignable.
      *
@@ -35,10 +48,21 @@ class User extends Authenticatable
         'user_types_id',
         'credits_balance',
         'total_purchases',
-        'received_amount'
+        'received_amount',
+        'id_front_image',
+        'id_back_image',
+        'selfie_image',
+        'verification_statuses_id',
     ];
 
     public $with = ['orders', 'credits', 'user_types.priceVariations'];
+
+    protected $appends = ['verification_status'];
+
+    public function getVerificationStatusAttribute()
+    {
+        return self::VERIFICATION_STATUS_SLUGS[$this->verification_statuses_id] ?? 'unsubmitted';
+    }
 
     public function orders()
     {

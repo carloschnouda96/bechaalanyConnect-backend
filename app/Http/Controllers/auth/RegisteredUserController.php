@@ -37,6 +37,8 @@ class RegisteredUserController extends Controller
         $request['verification_token'] = $email_confirmation_token;
         $request['email_verified'] = 0;
 
+        // All users register as regular users; an admin can promote them to a
+        // business user type (special pricing) later from the admin panel.
         $user = User::create([
             'username' => $request['username'],
             'email' => $request['email'],
@@ -46,17 +48,18 @@ class RegisteredUserController extends Controller
             'verification_token' => $email_confirmation_token,
             'account_verification_code' => $account_verification_code,
             'email_verified' => 0,
-            'is_business_user' => $request['isBusiness'] ?? 0,
-            'business_name' => $request['storeName'] ?? null,
-            'business_location' => $request['location'] ?? null,
-            'user_types_id' => $request['userType'] ?? null,
+            'is_business_user' => 0,
+            'business_name' => null,
+            'business_location' => null,
+            'user_types_id' => null,
             'credits_balance' => 0,
             'total_purchases' => 0,
-            'received_amount' => 0
+            'received_amount' => 0,
+            'verification_statuses_id' => User::VERIFICATION_UNSUBMITTED,
         ]);
-        $confirm_email_url = env('APP_FRONT_URL') . '/email-verification/' . $user->email . '/' . $email_confirmation_token;
+        $confirm_email_url = config('app.front_url') . '/' . app()->getLocale() . '/email-verification/' . $user->email . '/' . $email_confirmation_token;
         try {
-            Mail::send('emails.verify-email', compact('account_verification_code', 'user'), function ($message) use ($request) {
+            Mail::send('emails.verify-email', compact('account_verification_code', 'user', 'confirm_email_url'), function ($message) use ($request) {
                 $message->to($request['email'])->subject(__('emails.subjects.verify_email'));
             });
         } catch (\Exception $e) {
@@ -104,8 +107,9 @@ class RegisteredUserController extends Controller
             $account_verification_code = random_int(100000, 999999);
             $user->account_verification_code = $account_verification_code;
             $user->save();
+            $confirm_email_url = config('app.front_url') . '/' . app()->getLocale() . '/email-verification/' . $user->email . '/' . $user->verification_token;
             try {
-                Mail::send('emails.verify-email', compact('account_verification_code', 'user'), function ($message) use ($request) {
+                Mail::send('emails.verify-email', compact('account_verification_code', 'user', 'confirm_email_url'), function ($message) use ($request) {
                     $message->to($request['email'])->subject(__('emails.subjects.verify_email'));
                 });
             } catch (\Exception $e) {
@@ -138,7 +142,7 @@ class RegisteredUserController extends Controller
             $password_reset_token = bin2hex(random_bytes(16));
             $user->password_reset_token = $password_reset_token;
             $user->save();
-            $reset_password_url = env('APP_FRONT_URL') . '/' . $requestedLocale . '/reset-password/' . $attributes['email'] . '/' . $password_reset_token;
+            $reset_password_url = config('app.front_url') . '/' . $requestedLocale . '/reset-password/' . $attributes['email'] . '/' . $password_reset_token;
             try {
                 Mail::send('emails.forgot-password', compact('reset_password_url', 'attributes'), function ($message) use ($attributes) {
                     $message->to($attributes['email'])->subject(__('emails.subjects.reset_password'));
@@ -170,10 +174,13 @@ class RegisteredUserController extends Controller
         }
         $attributes = $request->validate([
             'email' => ['required', 'email', 'max:255'],
+            'token' => ['required', 'string'],
             'password' => ['required', 'confirmed', \Illuminate\Validation\Rules\Password::min(6)]
         ]);
         $user = User::where('email', $attributes['email'])->first();
-        if ($user) {
+        // The reset token from the emailed link must match — otherwise anyone
+        // knowing an email address could take over the account.
+        if ($user && $user->password_reset_token && hash_equals($user->password_reset_token, $attributes['token'])) {
             $user->update([
                 'password' => bcrypt($attributes['password']),
                 'password_reset_token' => null

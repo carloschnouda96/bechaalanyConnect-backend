@@ -41,7 +41,8 @@ class SocialiteController extends Controller
                 'email_verified' => 1,
                 'credits_balance' => 0,
                 'total_purchases' => 0,
-                'received_amount' => 0
+                'received_amount' => 0,
+                'verification_statuses_id' => User::VERIFICATION_UNSUBMITTED,
             ]);
         }
 
@@ -49,7 +50,7 @@ class SocialiteController extends Controller
         $token = $user->createToken('auth_token')->plainTextToken;
 
         // Redirect or return token as JSON
-        return redirect("https://bechaalanyconnect.vercel.app/oauth-success?token=$token");
+        return redirect(config('app.front_url') . "/oauth-success?token=$token");
     }
 
     public function syncUser(Request $request)
@@ -81,6 +82,7 @@ class SocialiteController extends Controller
                 'password' => bcrypt(str()->random(24)),
                 'email_verified' => 1,
                 'credits_balance' => 0,
+                'verification_statuses_id' => User::VERIFICATION_UNSUBMITTED,
             ]);
         }
 

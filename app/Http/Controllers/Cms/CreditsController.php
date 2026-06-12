@@ -8,6 +8,7 @@ use Hellotreedigital\Cms\Controllers\CmsPageController;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\NotificationController;
 use App\Models\User;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Mail;
 
 class CreditsController extends Controller
@@ -44,30 +45,40 @@ class CreditsController extends Controller
 
     private function updateUserCredits($creditsTransferId, $statusId, $previousStatus = null, $requestedLocale = null)
     {
-        $creditsTransfer = CreditsTransfer::find($creditsTransferId);
-        if (!$creditsTransfer) {
+        if ($previousStatus == $statusId) {
             return;
         }
-        // Assuming: 1 = approved, 2 = pending, 3 = rejected
-        $user = User::find($creditsTransfer->users_id);
-        // Refund only if status changed from approved to pending or rejected
-        if ($previousStatus == 1 && ($statusId == 2 || $statusId == 3)) {
-            if ($user) {
+
+        $result = DB::transaction(function () use ($creditsTransferId, $statusId, $previousStatus) {
+            $creditsTransfer = CreditsTransfer::find($creditsTransferId);
+            if (!$creditsTransfer) {
+                return null;
+            }
+            // Statuses: 1 = approved, 2 = rejected, 3 = pending
+            $user = User::where('id', $creditsTransfer->users_id)->lockForUpdate()->first();
+            if (!$user) {
+                return null;
+            }
+            // Remove previously credited amount if status changed away from approved
+            if ($previousStatus == CreditsTransfer::STATUS_APPROVED && $statusId != CreditsTransfer::STATUS_APPROVED) {
                 $user->credits_balance -= $creditsTransfer->amount;
                 $user->received_amount -= $creditsTransfer->amount;
                 $user->save();
+                return ['action' => 'reverted', 'transfer' => $creditsTransfer, 'user' => $user];
             }
-            return $creditsTransfer->amount;
-        }
-        // Deduct only if status changed to approved
-        if ($statusId == 1 && $previousStatus != 1) {
-            if ($user) {
+            // Credit the amount if status changed to approved
+            if ($statusId == CreditsTransfer::STATUS_APPROVED && $previousStatus != CreditsTransfer::STATUS_APPROVED) {
                 $user->credits_balance += $creditsTransfer->amount;
                 $user->received_amount += $creditsTransfer->amount;
                 $user->save();
+                return ['action' => 'approved', 'transfer' => $creditsTransfer, 'user' => $user];
             }
+            return null;
+        });
 
-            Mail::send('emails.credits_approved', ['user' => $user, 'amount' => $creditsTransfer->amount], function ($message) use ($user) {
+        if ($result && $result['action'] === 'approved') {
+            $user = $result['user'];
+            Mail::send('emails.credits_approved', ['user' => $user, 'amount' => $result['transfer']->amount], function ($message) use ($user) {
                 $message->to($user->email);
                 $message->subject('Your credits request has been approved');
             });
@@ -85,7 +96,7 @@ class CreditsController extends Controller
         }
 
         // Only create notification for significant status changes
-        if ($previousStatus !== $newStatus && in_array($newStatus, [1, 3])) { // approved or rejected
+        if ($previousStatus !== $newStatus && in_array($newStatus, [CreditsTransfer::STATUS_APPROVED, CreditsTransfer::STATUS_REJECTED])) {
             NotificationController::createCreditNotification(
                 $creditsTransfer->users_id,
                 $creditsTransferId,

@@ -56,24 +56,26 @@ class CreditsController extends Controller
         //get Current User
         $user = $request->user();
 
+        if ($user->verification_status !== 'approved') {
+            return response()->json(['message' => 'Your account must be verified before requesting credits.'], 403);
+        }
+
         // Validate the request data
         $validatedData = $request->validate([
-            'users_id' => 'required|exists:users,id',
             'amount' => 'required|numeric|min:1',
-            'receipt_image' => 'image|mimes:jpeg,png,jpg,gif,svg',
+            'receipt_image' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
             'credits_types_id' => 'required|exists:credits_types,id',
-            'statuses_id' => 'numeric'
         ]);
 
         $receiptImagePath = $request->file('receipt_image')->store('receipts', 'public');
 
 
         $transferRequest = new CreditsTransfer();
-        $transferRequest->users_id = $validatedData['users_id'];
+        $transferRequest->users_id = $user->id;
         $transferRequest->amount = $validatedData['amount'];
         $transferRequest->receipt_image = $receiptImagePath;
-        $transferRequest->credits_types_id = $request->credits_types_id; // Assuming this is passed in the request
-        $transferRequest->statuses_id = $validatedData['statuses_id'];
+        $transferRequest->credits_types_id = $validatedData['credits_types_id'];
+        $transferRequest->statuses_id = CreditsTransfer::STATUS_PENDING;
         $transferRequest->save();
 
         Mail::send('emails.admin-new-credit-transfer-request', compact('user', 'transferRequest'), function ($message) use ($user, $admin_email) {

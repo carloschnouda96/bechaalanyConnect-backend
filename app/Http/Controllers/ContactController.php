@@ -9,6 +9,7 @@ use App\ContactPageSetting;
 use App\FixedSetting;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Mail;
+use App\SeoPage;
 
 class ContactController extends Controller
 {
@@ -17,10 +18,13 @@ class ContactController extends Controller
         $contact_page_setting = ContactPageSetting::first();
         $contact_details = ContactDetail::where('is_main', 1)->first();
         $contact_form_subjects = ContactFormSubject::orderBy('ht_pos')->get();
+        $seo = SeoPage::where('slug', 'contact')->first();
+
         return response()->json([
             'contact_page_setting' => $contact_page_setting,
             'contact_details' => $contact_details,
-            'contact_form_subjects' => $contact_form_subjects
+            'contact_form_subjects' => $contact_form_subjects,
+            'seo' => $seo
         ]);
     }
 

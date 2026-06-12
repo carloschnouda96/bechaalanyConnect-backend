@@ -29,6 +29,10 @@ class User extends Model
     {
         return $this->belongsTo('App\UserType');
     }
+    public function verification_statuses()
+    {
+        return $this->belongsTo('App\VerificationStatus');
+    }
 
     /* Start custom functions */
 

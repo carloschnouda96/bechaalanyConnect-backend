@@ -11,7 +11,9 @@ use Carbon\Carbon;
 
 class CreditsTransfer extends Model
 {
-
+    const STATUS_APPROVED = 1;
+    const STATUS_REJECTED = 2;
+    const STATUS_PENDING = 3;
 
     protected $table = 'credits_transfer';
 

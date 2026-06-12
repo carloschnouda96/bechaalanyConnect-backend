@@ -46,12 +46,6 @@ Route::post('/resend-verification-code', [RegisteredUserController::class, 'veri
 //Contact Form Routes
 Route::post('/contact-form-submit', [ContactController::class, 'submit']);
 
-//Save Order Route
-Route::post('/save-order', [OrderController::class, 'saveOrder']);
-
-
-
-
 // Authenticated user routes
 Route::middleware('auth:sanctum')->group(function () {
 
@@ -81,6 +75,12 @@ Route::middleware('locale')->prefix('{locale}')->group(function () {
 });
 
 Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function () {
+
+    //Save Order Route (authenticated; price computed server-side)
+    Route::post('/save-order', [OrderController::class, 'saveOrder']);
+
+    //KYC document submission (ID front/back + selfie)
+    Route::post('/kyc/submit', [\App\Http\Controllers\KycController::class, 'submit']);
 
     //Get User Orders
     Route::get('/user/orders', [OrderController::class, 'getUserOrders']);

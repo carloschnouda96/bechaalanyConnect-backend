@@ -5,10 +5,36 @@ return [
         'verify_email' => 'Email Confirmation',
         'reset_password' => 'Reset Password',
         'new_order' => 'New Order Request',
+        'kyc_submitted' => 'New Account Verification Request',
+        'kyc_approved' => 'Your Account Has Been Verified',
+        'kyc_rejected' => 'Account Verification Rejected',
+    ],
+    'kyc_submitted' => [
+        'hello_admin' => 'Hello Admin:',
+        'body' => 'A user has submitted identity verification documents and is waiting for approval:',
+        'user_details' => 'User Details:',
+        'fields' => [
+            'username' => 'Username:',
+            'email' => 'Email:',
+            'phone' => 'Phone Number:',
+        ],
+        'closing' => 'Please review the documents from the admin panel (Users page).',
+    ],
+    'kyc_approved' => [
+        'greeting' => 'Dear :name,',
+        'body' => 'Your account has been verified successfully. You can now use all platform features, place orders and add credits.',
+        'closing' => 'Thank you for joining us!',
+    ],
+    'kyc_rejected' => [
+        'greeting' => 'Dear :name,',
+        'body' => 'Unfortunately, your identity verification documents were rejected. Please sign in and resubmit clear photos of your ID (front and back) and a new selfie.',
+        'closing' => 'If you believe this is a mistake, please contact support.',
     ],
     'verify_email' => [
         'greeting' => 'Dear :name,',
         'intro' => 'This is your verification code:',
+        'link_instruction' => 'Or click the button below to verify your account and enter the code:',
+        'button' => 'Verify my account',
     ],
     'forgot_password' => [
         'greeting' => 'Dear User,',
