@@ -59,14 +59,12 @@ class SessionController extends Controller
             return response()->json(['message' => 'Unauthenticated.'], 401);
         }
 
+        // Business fields and user_types_id are intentionally not updatable here:
+        // only an admin can promote a user to a business user type (special pricing)
         $validatedData = $request->validate([
             'username' => 'sometimes|required|string|min:3',
             'country' => 'sometimes|nullable|string|max:255',
             'phone_number' => 'sometimes|nullable|string|max:20',
-            'is_business_user' => 'sometimes|boolean',
-            'business_name' => 'sometimes|nullable|string|max:255',
-            'business_location' => 'sometimes|nullable|string|max:255',
-            'user_types_id' => 'sometimes|nullable|exists:user_types,id',
         ]);
 
         // Update user with validated data

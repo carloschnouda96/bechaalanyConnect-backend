@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use App\CreditsTransfer;
 use App\UserNotification;
 
 class NotificationController extends Controller
@@ -236,14 +237,38 @@ class NotificationController extends Controller
     }
 
     /**
+     * Create a KYC verification status change notification
+     * Called from the CMS UsersController when an admin approves/rejects documents
+     */
+    public static function createKycNotification($userId, $newStatus, $previousStatus)
+    {
+        $message = $newStatus == \App\Models\User::VERIFICATION_APPROVED
+            ? 'Your account has been verified. You can now use all platform features.'
+            : 'Your verification documents were rejected. Please resubmit your documents.';
+
+        UserNotification::create([
+            'users_id' => $userId,
+            'statuses_id' => null,
+            'data' => json_encode([
+                'type' => 'kyc',
+                'new_status' => null,
+                'kyc_status' => $newStatus,
+                'previous_kyc_status' => $previousStatus,
+                'message' => $message,
+            ]),
+            'read_at' => null,
+        ]);
+    }
+
+    /**
      * Map Laravel status ID to frontend notification type
      */
     private function mapStatusToNotificationType($statusId)
     {
         switch ($statusId) {
-            case 1:
+            case CreditsTransfer::STATUS_APPROVED:
                 return 'credit_approved';
-            case 3:
+            case CreditsTransfer::STATUS_REJECTED:
                 return 'credit_rejected';
             default:
                 return 'credit_pending';
@@ -256,11 +281,11 @@ class NotificationController extends Controller
     private static function generateStatusMessage($statusId, $amount)
     {
         switch ($statusId) {
-            case 1:
+            case CreditsTransfer::STATUS_APPROVED:
                 return "Your credit request of $amount has been approved and added to your balance.";
-            case 3:
+            case CreditsTransfer::STATUS_REJECTED:
                 return "Your credit request of $amount has been rejected. Please contact support for assistance.";
-            case 2:
+            case CreditsTransfer::STATUS_PENDING:
                 return "Your credit request of $amount is pending review.";
             default:
                 return "Your credit request status has been updated.";
