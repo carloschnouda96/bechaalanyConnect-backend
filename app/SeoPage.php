@@ -25,7 +25,16 @@ class SeoPage extends Model  implements TranslatableContract
 
     /* Start custom functions */
 
+    public $appends = ['full_path'];
 
+    public function getFullPathAttribute()
+        {
+            if ($this->image) {
+                $image = Storage::url($this->image);
+                return compact('image');
+            }
+            return null;
+        }
 
     /* End custom functions */
 }

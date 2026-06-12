@@ -6,6 +6,7 @@ use App\BannerSwiper;
 use App\Category;
 use App\HomepageSetting;
 use App\Product;
+use App\SeoPage;
 
 class HomepageController extends Controller
 {
@@ -18,12 +19,14 @@ class HomepageController extends Controller
         $homepageSettings = HomepageSetting::first();
         $categories = Category::where('is_active', 1)->get()->take(6);
         $latest_products = Product::orderBy('created_at', 'desc')->where('is_active', 1)->take(4)->get();
+        $seo = SeoPage::where('slug', 'home')->first();
 
         return response()->json([
             'bannerSwiper' => $bannerSwiper,
             'homepageSettings' => $homepageSettings,
             'categories' => $categories,
-            'latest_products' => $latest_products
+            'latest_products' => $latest_products,
+            'seo' => $seo
         ]);
     }
 }
