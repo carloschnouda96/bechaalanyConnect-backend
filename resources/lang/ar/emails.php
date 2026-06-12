@@ -33,6 +33,8 @@ return [
     'verify_email' => [
         'greeting' => 'عزيزي, :name',
         'intro' => ': هذا هو رمز التحقق الخاص بك',
+        'link_instruction' => 'أو اضغط على الزر أدناه لتأكيد حسابك وإدخال الرمز:',
+        'button' => 'تأكيد حسابي',
     ],
     'credits_approved' => [
         'greeting' => 'عزيزي :name،',

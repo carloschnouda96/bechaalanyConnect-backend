@@ -57,9 +57,9 @@ class RegisteredUserController extends Controller
             'received_amount' => 0,
             'verification_statuses_id' => User::VERIFICATION_UNSUBMITTED,
         ]);
-        $confirm_email_url = config('app.front_url') . '/email-verification/' . $user->email . '/' . $email_confirmation_token;
+        $confirm_email_url = config('app.front_url') . '/' . app()->getLocale() . '/email-verification/' . $user->email . '/' . $email_confirmation_token;
         try {
-            Mail::send('emails.verify-email', compact('account_verification_code', 'user'), function ($message) use ($request) {
+            Mail::send('emails.verify-email', compact('account_verification_code', 'user', 'confirm_email_url'), function ($message) use ($request) {
                 $message->to($request['email'])->subject(__('emails.subjects.verify_email'));
             });
         } catch (\Exception $e) {
@@ -107,8 +107,9 @@ class RegisteredUserController extends Controller
             $account_verification_code = random_int(100000, 999999);
             $user->account_verification_code = $account_verification_code;
             $user->save();
+            $confirm_email_url = config('app.front_url') . '/' . app()->getLocale() . '/email-verification/' . $user->email . '/' . $user->verification_token;
             try {
-                Mail::send('emails.verify-email', compact('account_verification_code', 'user'), function ($message) use ($request) {
+                Mail::send('emails.verify-email', compact('account_verification_code', 'user', 'confirm_email_url'), function ($message) use ($request) {
                     $message->to($request['email'])->subject(__('emails.subjects.verify_email'));
                 });
             } catch (\Exception $e) {

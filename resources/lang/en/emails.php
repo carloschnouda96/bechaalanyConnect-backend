@@ -33,6 +33,8 @@ return [
     'verify_email' => [
         'greeting' => 'Dear :name,',
         'intro' => 'This is your verification code:',
+        'link_instruction' => 'Or click the button below to verify your account and enter the code:',
+        'button' => 'Verify my account',
     ],
     'forgot_password' => [
         'greeting' => 'Dear User,',
