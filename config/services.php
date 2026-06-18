@@ -37,4 +37,18 @@ return [
         'redirect'      => env('GOOGLE_REDIRECT_URL'),
     ],
 
+    /*
+    | Yassen-Card supplier integration. The API token is a secret and must only
+    | live in .env (never committed). `enabled` is a master switch so the sync
+    | commands and order auto-fulfillment are no-ops until a token is configured.
+    */
+    'yassen' => [
+        'base_url' => env('YASSEN_BASE_URL', 'https://api.yassen-card.com'),
+        'token'    => env('YASSEN_API_TOKEN'),
+        'enabled'  => env('YASSEN_SYNC_ENABLED', false),
+        // Multiplier applied to the supplier's amount/quantity when calling
+        // newOrder. Leave at 1 unless the live API expects a different unit.
+        'qty_multiplier' => env('YASSEN_QTY_MULTIPLIER', 1),
+    ],
+
 ];

@@ -19,6 +19,10 @@ class Order extends Model
 
     protected $guarded = ['id'];
 
+    protected $casts = [
+        'external_response' => 'array',
+    ];
+
 
 
     protected static function booted()

@@ -12,7 +12,11 @@ class Kernel extends ConsoleKernel
      */
     protected function schedule(Schedule $schedule): void
     {
-        // $schedule->command('inspire')->hourly();
+        // Keep the Yassen catalog & prices in sync, and resolve pending supplier
+        // orders. Both no-op unless YASSEN_SYNC_ENABLED=true with a token set.
+        // Requires the system cron entry: * * * * * php artisan schedule:run
+        $schedule->command('yassen:sync')->hourly()->withoutOverlapping();
+        $schedule->command('yassen:check-orders')->everyFiveMinutes()->withoutOverlapping();
     }
 
     /**

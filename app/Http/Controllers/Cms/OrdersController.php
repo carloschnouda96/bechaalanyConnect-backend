@@ -6,8 +6,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Hellotreedigital\Cms\Controllers\CmsPageController;
 use App\Http\Controllers\Controller;
+use App\Jobs\FulfillYassenOrderJob;
 use App\Models\User;
 use App\Order;
+use App\Services\Yassen\YassenOrderFulfillment;
 
 class OrdersController extends Controller
 {
@@ -50,8 +52,32 @@ class OrdersController extends Controller
         //Update User credits_balance and total_purchases if Order approved
         $this->updateUserCredits($id, $request->statuses_id, $previousStatus);
 
+        // Auto-fulfill via the supplier when an order is freshly approved.
+        $this->maybeFulfillExternalOrder($id, $request->statuses_id, $previousStatus);
+
         // Redirect to the orders page
         return url(config('hellotree.cms_route_prefix') . '/orders');
+    }
+
+    /**
+     * Dispatch supplier fulfillment when an order moves into APPROVED from a
+     * non-approved state, but only for Yassen-sourced orders that haven't
+     * already been placed.
+     */
+    private function maybeFulfillExternalOrder($orderId, $statusId, $previousStatus = null): void
+    {
+        if ((int) $statusId !== Order::STATUS_APPROVED || (int) $previousStatus === Order::STATUS_APPROVED) {
+            return;
+        }
+
+        $order = Order::find($orderId);
+        if (!$order || $order->external_order_id) {
+            return; // already fulfilled
+        }
+
+        if (YassenOrderFulfillment::isExternal($order)) {
+            FulfillYassenOrderJob::dispatch($order->id);
+        }
     }
 
     private function updateUserCredits($orderId, $statusId, $previousStatus = null)
