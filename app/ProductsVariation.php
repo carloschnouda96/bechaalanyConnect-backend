@@ -18,13 +18,26 @@ class ProductsVariation extends Model  implements TranslatableContract
 
     protected $guarded = ['id'];
 
-    protected $hidden = ['translations'];
+    // Hide supplier cost/linkage from the public API; external_qty_values stays
+    // visible so the storefront can render preset amounts. cost_price remains as
+    // it was before this integration.
+    protected $hidden = ['translations', 'external_id', 'external_price', 'external_type'];
 
     public $translatedAttributes = ["name", "description", "unit_label"];
 
     protected $casts = [
         'unit_amount' => 'integer',
+        'external_qty_values' => 'array',
     ];
+
+    /**
+     * Single source of truth for the supplier markup formula:
+     * selling price = cost * (1 + profit% / 100), rounded to 2 decimals.
+     */
+    public static function computeSellingPrice(float $cost, float $profitPercentage): float
+    {
+        return round($cost * (1 + ($profitPercentage / 100)), 2);
+    }
 
     protected static function booted()
     {
