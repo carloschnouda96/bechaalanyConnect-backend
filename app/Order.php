@@ -42,7 +42,25 @@ class Order extends Model
 
     /* Start custom functions */
 
+    protected $appends = ['coins'];
 
+    /**
+     * For Coin Recharge products, the total coins ordered = quantity (blocks) ×
+     * the variation's coins-per-block. Null for non-coin products so the CMS
+     * orders view can show "30,000 coins" instead of just the block count.
+     */
+    public function getCoinsAttribute()
+    {
+        $variation = $this->relationLoaded('product_variation')
+            ? $this->product_variation
+            : $this->product_variation()->first();
+
+        if (!$variation || !$variation->unit_amount) {
+            return null;
+        }
+
+        return $this->quantity * $variation->unit_amount;
+    }
 
     /* End custom functions */
 }
