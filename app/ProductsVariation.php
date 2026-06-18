@@ -20,7 +20,11 @@ class ProductsVariation extends Model  implements TranslatableContract
 
     protected $hidden = ['translations'];
 
-    public $translatedAttributes = ["name", "description"];
+    public $translatedAttributes = ["name", "description", "unit_label"];
+
+    protected $casts = [
+        'unit_amount' => 'integer',
+    ];
 
     protected static function booted()
     {
