@@ -3,7 +3,7 @@
 namespace App\Jobs;
 
 use App\Order;
-use App\Services\Yassen\YassenOrderFulfillment;
+use App\Services\Suppliers\SupplierOrderFulfillment;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -12,13 +12,14 @@ use Illuminate\Queue\SerializesModels;
 
 /**
  * Places the supplier order for a local order once an admin approves it.
- * Dispatched from Cms\OrdersController on the PENDING→APPROVED transition.
+ * Dispatched from Cms\OrdersController on the PENDING→APPROVED transition,
+ * for any supplier (the connector is resolved from the order's external_source).
  *
  * With QUEUE_CONNECTION=sync (the current default) this runs inline during the
- * approve request; set a real queue driver in production so the Yassen HTTP
+ * approve request; set a real queue driver in production so the supplier HTTP
  * call doesn't block the CMS response.
  */
-class FulfillYassenOrderJob implements ShouldQueue
+class FulfillSupplierOrderJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
@@ -29,7 +30,7 @@ class FulfillYassenOrderJob implements ShouldQueue
     {
     }
 
-    public function handle(YassenOrderFulfillment $fulfillment): void
+    public function handle(SupplierOrderFulfillment $fulfillment): void
     {
         $order = Order::withoutGlobalScope('cms_draft_flag')->find($this->orderId);
         if (!$order || (int) $order->statuses_id !== Order::STATUS_APPROVED) {

@@ -19,12 +19,13 @@ class Product extends Model  implements TranslatableContract
     protected $guarded = ['id'];
 
     // Keep supplier linkage + our margin out of the public API responses.
-    protected $hidden = ['translations', 'external_source', 'external_id', 'profit_percentage'];
+    protected $hidden = ['translations', 'external_source', 'external_id', 'profit_percentage', 'import_excluded'];
 
     public $translatedAttributes = ["name", "description"];
 
     protected $casts = [
         'profit_percentage' => 'decimal:2',
+        'import_excluded' => 'boolean',
     ];
 
     protected static function booted()
