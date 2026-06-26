@@ -2,6 +2,7 @@
 
 namespace App\Services\Suppliers;
 
+use App\Http\Controllers\NotificationController;
 use App\Models\User;
 use App\Order;
 use App\ProductsVariation;
@@ -122,10 +123,10 @@ class SupplierOrderFulfillment
 
     private function refund(Order $order): void
     {
-        DB::transaction(function () use ($order) {
+        $refunded = DB::transaction(function () use ($order) {
             $locked = Order::withoutGlobalScope('cms_draft_flag')->where('id', $order->id)->lockForUpdate()->first();
             if (!$locked || (int) $locked->statuses_id === Order::STATUS_REJECTED) {
-                return;
+                return null;
             }
 
             $user = User::where('id', $locked->users_id)->lockForUpdate()->first();
@@ -139,6 +140,26 @@ class SupplierOrderFulfillment
             $locked->save();
 
             $order->statuses_id = Order::STATUS_REJECTED;
+
+            return $locked;
         });
+
+        // Notify the customer (in-app) that the supplier cancelled their order and
+        // the credits were returned. Only fires on the real APPROVED→REJECTED transition.
+        if ($refunded) {
+            try {
+                NotificationController::createOrderNotification(
+                    $refunded->users_id,
+                    $refunded->id,
+                    $refunded->total_price,
+                    'supplier_cancelled',
+                );
+            } catch (\Throwable $e) {
+                Log::error('Order cancellation notification failed', [
+                    'order_id' => $order->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
     }
 }
