@@ -6,10 +6,10 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Hellotreedigital\Cms\Controllers\CmsPageController;
 use App\Http\Controllers\Controller;
-use App\Jobs\FulfillYassenOrderJob;
+use App\Jobs\FulfillSupplierOrderJob;
 use App\Models\User;
 use App\Order;
-use App\Services\Yassen\YassenOrderFulfillment;
+use App\Services\Suppliers\SupplierOrderFulfillment;
 
 class OrdersController extends Controller
 {
@@ -61,8 +61,8 @@ class OrdersController extends Controller
 
     /**
      * Dispatch supplier fulfillment when an order moves into APPROVED from a
-     * non-approved state, but only for Yassen-sourced orders that haven't
-     * already been placed.
+     * non-approved state, but only for supplier-sourced orders (any supplier,
+     * resolved from external_source) that haven't already been placed.
      */
     private function maybeFulfillExternalOrder($orderId, $statusId, $previousStatus = null): void
     {
@@ -75,8 +75,8 @@ class OrdersController extends Controller
             return; // already fulfilled
         }
 
-        if (YassenOrderFulfillment::isExternal($order)) {
-            FulfillYassenOrderJob::dispatch($order->id);
+        if (SupplierOrderFulfillment::isExternal($order)) {
+            FulfillSupplierOrderJob::dispatch($order->id);
         }
     }
 

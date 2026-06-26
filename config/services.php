@@ -51,4 +51,16 @@ return [
         'qty_multiplier' => env('YASSEN_QTY_MULTIPLIER', 1),
     ],
 
+    /*
+    | SwiftServices supplier integration (Perfect Panel v2). Auth is the `key`
+    | query parameter — a secret that must only live in .env (never committed).
+    | `enabled` is a master switch so the sync commands and order
+    | auto-fulfillment are no-ops until a key is configured.
+    */
+    'swift' => [
+        'base_url' => env('SWIFT_BASE_URL', 'https://swiftservices.store'),
+        'key'      => env('SWIFT_API_KEY'),
+        'enabled'  => env('SWIFT_SYNC_ENABLED', false),
+    ],
+
 ];
