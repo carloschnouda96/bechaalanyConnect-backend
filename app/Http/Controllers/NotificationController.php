@@ -261,6 +261,29 @@ class NotificationController extends Controller
     }
 
     /**
+     * Create a notification when a supplier-sourced order is auto-cancelled
+     * (the supplier rejected/cancelled it) and the customer's credits were
+     * refunded. Called from SupplierOrderFulfillment::refund().
+     */
+    public static function createOrderNotification($userId, $orderId, $amount = null, $reason = null)
+    {
+        $message = 'Your order was cancelled by the supplier and your credits have been refunded.';
+
+        UserNotification::create([
+            'users_id' => $userId,
+            'statuses_id' => \App\Order::STATUS_REJECTED,
+            'data' => json_encode([
+                'type' => 'order_cancelled',
+                'order_id' => $orderId,
+                'amount' => $amount,
+                'reason' => $reason,
+                'message' => $message,
+            ]),
+            'read_at' => null,
+        ]);
+    }
+
+    /**
      * Map Laravel status ID to frontend notification type
      */
     private function mapStatusToNotificationType($statusId)
