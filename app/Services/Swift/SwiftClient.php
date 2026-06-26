@@ -64,12 +64,16 @@ class SwiftClient
         return $this->call(['action' => 'cancel', 'order' => $orderId]);
     }
 
+    private const WRITE_ACTIONS = ['add', 'cancel', 'refill'];
+
     private function call(array $params): array
     {
         $action = (string) ($params['action'] ?? '');
         $params['key'] = (string) $this->key;
 
-        $response = $this->request()->get('/api/v2', $params);
+        $response = in_array($action, self::WRITE_ACTIONS, true)
+            ? $this->request()->post('/api/v2', $params)
+            : $this->request()->get('/api/v2', $params);
 
         if ($response->failed()) {
             throw new SupplierApiException(
