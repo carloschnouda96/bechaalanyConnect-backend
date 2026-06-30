@@ -21,6 +21,9 @@ class Kernel extends ConsoleKernel
 
         $schedule->command('swift:sync')->hourly()->withoutOverlapping();
         $schedule->command('swift:check-orders')->everyFiveMinutes()->withoutOverlapping();
+
+        $schedule->command('1xpanel:sync')->hourly()->withoutOverlapping();
+        $schedule->command('1xpanel:check-orders')->everyFiveMinutes()->withoutOverlapping();
     }
 
     /**

@@ -63,4 +63,28 @@ return [
         'enabled'  => env('SWIFT_SYNC_ENABLED', false),
     ],
 
+    /*
+    | 1xpanel supplier integration (Perfect Panel v2, like Swift). Auth is the
+    | `key` query parameter — a secret that must only live in .env (never
+    | committed). `enabled` is a master switch so the sync commands and order
+    | auto-fulfillment are no-ops until a key is configured. The env prefix is
+    | ONEXPANEL_ (not 1XPANEL_) because env-var names starting with a digit can't
+    | be exported by POSIX shells / Docker / Forge.
+    */
+    '1xpanel' => [
+        'base_url' => env('ONEXPANEL_BASE_URL', 'https://1xpanel.com'),
+        'key'      => env('ONEXPANEL_API_KEY'),
+        'enabled'  => env('ONEXPANEL_SYNC_ENABLED', false),
+    ],
+
+    /*
+    | Shared secret for the HTTP cron entrypoints (CronController). When set, the
+    | /api/cron/* routes require a matching `?token=` so only the host's cron can
+    | trigger them. Leave empty to keep the endpoints open (like the host's other
+    | tokenless wget jobs).
+    */
+    'cron' => [
+        'token' => env('CRON_TOKEN'),
+    ],
+
 ];
