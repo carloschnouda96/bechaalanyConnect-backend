@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AboutController;
+use App\Http\Controllers\CronController;
 use App\Http\Controllers\GeneralController;
 use App\Http\Controllers\HomepageController;
 use Illuminate\Http\Request;
@@ -45,6 +46,12 @@ Route::post('/resend-verification-code', [RegisteredUserController::class, 'veri
 
 //Contact Form Routes
 Route::post('/contact-form-submit', [ContactController::class, 'submit']);
+
+// Cron entrypoints for the URL-based production scheduler (hit by wget from the
+// host cron panel). Run every enabled supplier in-process. Optionally guarded by
+// CRON_TOKEN (?token=…). Recommended: sync hourly, check-orders every 5 min.
+Route::get('/cron/suppliers/sync', [CronController::class, 'suppliersSync']);
+Route::get('/cron/suppliers/check-orders', [CronController::class, 'suppliersCheckOrders']);
 
 // Authenticated user routes
 Route::middleware('auth:sanctum')->group(function () {
