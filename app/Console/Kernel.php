@@ -24,6 +24,16 @@ class Kernel extends ConsoleKernel
 
         $schedule->command('1xpanel:sync')->hourly()->withoutOverlapping();
         $schedule->command('1xpanel:check-orders')->everyFiveMinutes()->withoutOverlapping();
+
+        // usharez exposes no order-status endpoint, so check-orders is a no-op
+        // report; it stays scheduled for parity with the other suppliers.
+        $schedule->command('usharez:sync')->hourly()->withoutOverlapping();
+        $schedule->command('usharez:check-orders')->everyFiveMinutes()->withoutOverlapping();
+
+        // U-Manage caps at 1000 requests/hour per key, hence check-orders' lower
+        // default --limit (see CheckUmanageOrders).
+        $schedule->command('umanage:sync')->hourly()->withoutOverlapping();
+        $schedule->command('umanage:check-orders')->everyFiveMinutes()->withoutOverlapping();
     }
 
     /**

@@ -78,6 +78,75 @@ return [
     ],
 
     /*
+    | usharez supplier integration (https://bechaalanyconnect.usharez.com). Auth is
+    | an `Authorization: Bearer <token>` header — a secret that must only live in
+    | .env (never committed). Two independent product families sit behind one
+    | account, each with its own switch so one can roll out without the other:
+    |   quota  GET /api/quota/admin/stock  →  POST /api/quota/admin/allocate
+    |   gift   GET /api/alfa-gifts         →  POST /api/alfa-gifts/purchase
+    */
+    'usharez' => [
+        'base_url' => env('USHAREZ_BASE_URL', 'https://bechaalanyconnect.usharez.com'),
+        'token'    => env('USHAREZ_API_KEY'),
+        'enabled'  => env('USHAREZ_SYNC_ENABLED', false),
+
+        // Quota stock prices arrive in LBP (660000 ≈ $7.4) but the storefront is
+        // USD-only, so the connector divides by this. Fixed Settings
+        // (usharez_lbp_per_usd) overrides it when set, so admins can update the
+        // rate from the CMS without a deploy. A wrong value mis-prices the whole
+        // catalog — review derived costs before enabling a category's import.
+        'lbp_per_usd' => env('USHAREZ_LBP_PER_USD', 89500),
+
+        'quota_enabled' => env('USHAREZ_QUOTA_ENABLED', true),
+        // The live token currently gets HTTP 403 on /api/alfa-gifts. The sync
+        // tolerates that (logs a warning, keeps quota intact), so this stays on:
+        // gifts start importing the moment usharez grants the permission.
+        'gifts_enabled'  => env('USHAREZ_GIFTS_ENABLED', true),
+        // Unverified along with the rest of the gifts payload — flip to 'lbp' if a
+        // real response turns out to price gifts in lira.
+        'gifts_currency' => env('USHAREZ_GIFTS_CURRENCY', 'usd'),
+        'gift_max_qty'   => env('USHAREZ_GIFT_MAX_QTY', 10),
+
+        // 'national8' keeps the operator's leading zero (03123456);
+        // 'strip_leading_zero' sends 3123456. Confirm with the first live order.
+        'phone_format' => env('USHAREZ_PHONE_FORMAT', 'national8'),
+    ],
+
+    /*
+    | U-Manage supplier integration (https://api.umanageapp.uk/api/v1/external).
+    | Auth is a PAIR of headers, X-API-Key + X-API-Secret — both secrets that must
+    | only live in .env. Every endpoint is scoped by a store id: pin it with
+    | UMANAGE_STORE_ID, otherwise the first store from GET /stores is used.
+    | Five families across three order endpoints, grouped by the three switches
+    | below (one HTTP call feeds both SMS families, and both telecom families).
+    | Rate limit is 1000 requests/hour per key — see CheckUmanageOrders.
+    */
+    'umanage' => [
+        'base_url' => env('UMANAGE_BASE_URL', 'https://api.umanageapp.uk/api/v1/external'),
+        'key'      => env('UMANAGE_API_KEY'),
+        'secret'   => env('UMANAGE_API_SECRET'),
+        'store_id' => env('UMANAGE_STORE_ID'),
+        'enabled'  => env('UMANAGE_SYNC_ENABLED', false),
+
+        'bundles_enabled' => env('UMANAGE_BUNDLES_ENABLED', true),
+        'sms_enabled'     => env('UMANAGE_SMS_ENABLED', true),
+        'telecom_enabled' => env('UMANAGE_TELECOM_ENABLED', true),
+
+        // Per-supplier LBP→USD override; normally left empty so the shared
+        // platform rate below (or Fixed Settings) applies.
+        'lbp_per_usd' => env('UMANAGE_LBP_PER_USD'),
+    ],
+
+    /*
+    | Shared platform LBP→USD divisor, used by every supplier that quotes in
+    | Lebanese Pounds (usharez, umanage). Fixed Settings `lbp_per_usd` overrides
+    | it so admins can update the rate from the CMS without a deploy; a
+    | supplier-specific Fixed Settings column (e.g. usharez_lbp_per_usd) still
+    | wins over both. See App\Services\Suppliers\ExchangeRate.
+    */
+    'lbp_per_usd' => env('LBP_PER_USD', 89500),
+
+    /*
     | Shared secret for the HTTP cron entrypoints (CronController). When set, the
     | /api/cron/* routes require a matching `?token=` so only the host's cron can
     | trigger them. Leave empty to keep the endpoints open (like the host's other

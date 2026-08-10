@@ -4,6 +4,8 @@ namespace App\Services\Suppliers;
 
 use App\Services\Suppliers\Connectors\OneXPanelConnector;
 use App\Services\Suppliers\Connectors\SwiftConnector;
+use App\Services\Suppliers\Connectors\UmanageConnector;
+use App\Services\Suppliers\Connectors\UsharezConnector;
 use App\Services\Suppliers\Connectors\YassenConnector;
 use App\Services\Suppliers\Contracts\SupplierConnector;
 use Illuminate\Contracts\Container\Container;
@@ -20,6 +22,8 @@ class SupplierRegistry
         YassenConnector::KEY => YassenConnector::class,
         SwiftConnector::KEY => SwiftConnector::class,
         OneXPanelConnector::KEY => OneXPanelConnector::class,
+        UsharezConnector::KEY => UsharezConnector::class,
+        UmanageConnector::KEY => UmanageConnector::class,
     ];
 
     public function __construct(private Container $container)
