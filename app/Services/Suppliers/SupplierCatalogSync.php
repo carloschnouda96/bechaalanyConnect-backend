@@ -5,6 +5,7 @@ namespace App\Services\Suppliers;
 use App\Category;
 use App\Product;
 use App\ProductsVariation;
+use App\Services\Suppliers\Contracts\PartialCatalogAware;
 use App\Services\Suppliers\Contracts\SupplierConnector;
 use App\Subcategory;
 use App\SupplierCategory;
@@ -95,7 +96,10 @@ class SupplierCatalogSync
         }
 
         // 4. Deactivate imported products no longer offered / in disabled categories.
-        $summary['deactivated'] = $this->deactivateStale($products, $enabled, $source);
+        // A multi-endpoint connector reports which slice of its catalog it could
+        // actually reach, so an endpoint outage isn't read as a withdrawal.
+        $scopes = $connector instanceof PartialCatalogAware ? $connector->catalogScopes() : null;
+        $summary['deactivated'] = $this->deactivateStale($products, $enabled, $source, $scopes);
 
         return $summary;
     }
@@ -264,8 +268,10 @@ class SupplierCatalogSync
      * reactivate.
      *
      * @param SupplierProduct[] $products
+     * @param string[]|null $scopes external_id prefixes the connector vouched for
+     *                              (see PartialCatalogAware); null = whole catalog
      */
-    private function deactivateStale(array $products, $enabled, string $source): int
+    private function deactivateStale(array $products, $enabled, string $source, ?array $scopes = null): int
     {
         $activeExternalIds = [];
         foreach ($products as $dto) {
@@ -274,9 +280,25 @@ class SupplierCatalogSync
             }
         }
 
+        // The connector assembles its catalog from several endpoints and reached
+        // none of them this run — it can't vouch for anything, so touch nothing.
+        if ($scopes === []) {
+            return 0;
+        }
+
         $query = Product::withoutGlobalScope('cms_draft_flag')
             ->where('external_source', $source)
             ->where('is_active', 1);
+
+        // Limit deactivation to the families actually fetched; products outside
+        // them were simply not observed, not withdrawn.
+        if (!empty($scopes)) {
+            $query->where(function ($q) use ($scopes) {
+                foreach ($scopes as $prefix) {
+                    $q->orWhere('external_id', 'like', $prefix . '%');
+                }
+            });
+        }
 
         if (!empty($activeExternalIds)) {
             $query->whereNotIn('external_id', $activeExternalIds);
