@@ -356,13 +356,17 @@ class UmanageConnector implements SupplierConnector, PartialCatalogAware
                     name: $name,
                     categoryExternalId: self::CATEGORY_TELECOM_VOUCHER,
                     categoryName: 'Recharge Vouchers',
-                    categoryImage: $image !== null ? (string) $image : null,
+                    // image_url is per-product, not per-category — feeding it to
+                    // categoryImage would make every product in the category fight
+                    // over the category artwork.
+                    categoryImage: null,
                     unitCost: $cost,
                     available: true,
                     // No recipient — the buyer receives a redeemable code.
                     productTypeId: self::PRODUCT_TYPE_CODE,
                     qtyValues: ['min' => 1, 'max' => 1],
                     externalType: $category,
+                    image: $image !== null ? (string) $image : null,
                 );
             }
 
@@ -372,12 +376,13 @@ class UmanageConnector implements SupplierConnector, PartialCatalogAware
                     name: $name . ' — Direct Recharge',
                     categoryExternalId: self::CATEGORY_TELECOM_RECHARGE,
                     categoryName: 'Direct Recharge',
-                    categoryImage: $image !== null ? (string) $image : null,
+                    categoryImage: null,
                     unitCost: $cost,
                     available: true,
                     productTypeId: self::PRODUCT_TYPE_TELECOM,
                     qtyValues: ['min' => 1, 'max' => 1],
                     externalType: $category,
+                    image: $image !== null ? (string) $image : null,
                 );
             }
         }

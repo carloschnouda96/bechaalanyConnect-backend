@@ -33,9 +33,10 @@ class HomepageSetting extends Model  implements TranslatableContract
         return $this->belongsToMany('App\Product', 'featured_product_homepage_setting', 'homepage_setting_id', 'product_id')->where('products.is_active', 1)->orderBy('featured_product_homepage_setting.ht_pos')->take(4);
     }
 
-    public $with = ['featured_products'];
-
     /* Start custom functions */
+
+    // Below the marker so a hellotree CMS page-schema save cannot rewrite it away.
+    public $with = ['featured_products'];
 
 
 

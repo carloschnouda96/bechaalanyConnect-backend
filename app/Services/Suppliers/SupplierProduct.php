@@ -29,6 +29,12 @@ class SupplierProduct
         public ?array $qtyValues = null,
         /** Supplier-native type label kept for reference (e.g. "package", "Default"). */
         public ?string $externalType = null,
+        /**
+         * Per-product image URL, when the supplier offers one (only U-Manage does —
+         * Yassen exposes a category image only, Swift/1xpanel/usharez none). Applied
+         * on first import only; an admin's CMS upload is never overwritten.
+         */
+        public ?string $image = null,
     ) {
     }
 }

@@ -10,9 +10,59 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
 
     /* Start admin route group */
 
-    Route::put('/orders/{id}', 'App\Http\Controllers\Cms\OrdersController@update');
-    Route::put('/credits-transfer/{id}', 'App\Http\Controllers\Cms\CreditsController@update');
-    Route::put('/users/{id}', 'App\Http\Controllers\Cms\UsersController@update');
+    /*
+     | Overrides the vendor's page-schema editor so App\Services\Cms\SchemaGuard runs
+     | after every save. editDatabase() re-asserts column types from an argument-less
+     | Blueprint call and forces every column NULLable, which silently narrows
+     | decimal(20,8) supplier costs to decimal(8,2) and drops NOT NULL.
+     |
+     | Same method+URI as the vendor route; the later registration replaces it.
+     */
+    Route::put('/cms-pages/{id}', 'App\Http\Controllers\Cms\CmsPagesController@update');
+    Route::post('/cms-pages', 'App\Http\Controllers\Cms\CmsPagesController@store');
+
+    /*
+     | Bulk approve / reject.
+     |
+     | MUST be registered before the `{id}` routes below: Laravel matches in
+     | registration order, so `{id}` would otherwise swallow `bulk-status` and the
+     | request would arrive at update() with $id = 'bulk-status'. This is the same
+     | class of bug that made DELETE /user/notifications/delete-read unreachable.
+     |
+     | PUT, not POST: AdminMiddleware maps POST to the `add` permission and PUT to
+     | `edit`, so POST would demand create rights to change a status.
+     */
+    /*
+     | KYC review queue. A custom page (cms_pages.custom_page = 1), so the vendor's
+     | generic CRUD routes are not generated for it.
+     |
+     | The `document` route is what makes KYC reviewable at all now that the ID photos
+     | and selfies live on the private disk — the vendor's image field calls
+     | Storage::url() on the default disk and cannot reach them.
+     */
+    Route::get('/kyc-queue', 'App\Http\Controllers\Cms\KycController@index');
+    Route::get('/kyc-queue/{id}', 'App\Http\Controllers\Cms\KycController@show')->whereNumber('id');
+    Route::get('/kyc-queue/{id}/document/{slot}', 'App\Http\Controllers\Cms\KycController@document')->whereNumber('id');
+    Route::put('/kyc-queue/{id}', 'App\Http\Controllers\Cms\KycController@update')->whereNumber('id');
+
+    // Supplier balances, plus a retry for orders that were charged and approved but
+    // never reached the supplier. PUT so AdminMiddleware maps it to `edit` rights.
+    Route::get('/supplier-health', 'App\Http\Controllers\Cms\SupplierHealthController@index');
+    Route::put('/supplier-health/retry/{id}', 'App\Http\Controllers\Cms\SupplierHealthController@retry')->whereNumber('id');
+    // Bycel gives no order id on purchase, so an admin sometimes has to pick which
+    // report row belongs to an order. PUT (not POST): AdminMiddleware maps POST to
+    // the `add` permission and PUT to `edit`.
+    Route::put('/supplier-health/bycel/{purchase}/claim/{merchantPurchaseId}', 'App\Http\Controllers\Cms\SupplierHealthController@claimBycelPin')
+        ->whereNumber('purchase')->whereNumber('merchantPurchaseId');
+    Route::put('/supplier-health/bycel/{purchase}/abandon', 'App\Http\Controllers\Cms\SupplierHealthController@abandonBycelPurchase')
+        ->whereNumber('purchase');
+
+    Route::put('/orders/bulk-status', 'App\Http\Controllers\Cms\OrdersController@bulkStatus');
+    Route::put('/credits-transfer/bulk-status', 'App\Http\Controllers\Cms\CreditsController@bulkStatus');
+
+    Route::put('/orders/{id}', 'App\Http\Controllers\Cms\OrdersController@update')->whereNumber('id');
+    Route::put('/credits-transfer/{id}', 'App\Http\Controllers\Cms\CreditsController@update')->whereNumber('id');
+    Route::put('/users/{id}', 'App\Http\Controllers\Cms\UsersController@update')->whereNumber('id');
 
 
 	/* End admin route group */

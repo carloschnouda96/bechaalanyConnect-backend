@@ -19,10 +19,6 @@ class SupplierCategory extends Model
 
 
 
-    protected $casts = [
-        'import_enabled' => 'boolean',
-    ];
-
     protected static function booted()
     {
         static::addGlobalScope('cms_draft_flag', function (Builder $builder) {
@@ -33,6 +29,12 @@ class SupplierCategory extends Model
 
 
     /* Start custom functions */
+
+    // Below the marker so a hellotree CMS page-schema save cannot rewrite it away.
+    protected $casts = [
+        'import_enabled' => 'boolean',
+    ];
+
     public function category()
     {
         return $this->belongsTo(Category::class, 'category_id');

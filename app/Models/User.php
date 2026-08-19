@@ -4,13 +4,23 @@ namespace App\Models;
 
 // use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
 
 class User extends Authenticatable
 {
-    use HasApiTokens, HasFactory, Notifiable;
+    /**
+     * SoftDeletes must be on the AUTH model too, not just on App\User.
+     *
+     * Both classes map to `users`. If only the CMS-facing App\User soft-deleted,
+     * a "deleted" account would still be found by Auth::attempt() and by Sanctum's
+     * token resolution — i.e. deleting a user would hide them from the admin while
+     * leaving them able to sign in and spend their balance. The global scope added
+     * here is what actually locks them out.
+     */
+    use HasApiTokens, HasFactory, Notifiable, SoftDeletes;
 
     // KYC verification statuses (verification_statuses table)
     const VERIFICATION_UNSUBMITTED = 1;
@@ -55,7 +65,25 @@ class User extends Authenticatable
         'verification_statuses_id',
     ];
 
-    public $with = ['orders', 'credits', 'user_types.priceVariations'];
+    /*
+     | `public $with = ['orders', 'credits', 'user_types.priceVariations']` used to
+     | live here. This is the model the auth guard resolves, so it ran on EVERY
+     | authenticated request: resolving auth()->user() pulled the user's entire
+     | unpaginated order history and entire credit-transfer history, and then
+     | cascaded — Order eager-loads product_variation.product, Product eager-loads
+     | subcategory.category, ProductsVariation eager-loads priceVariations. Four
+     | levels of $with, growing without bound as a customer places more orders, on
+     | requests that only needed the user's id.
+     |
+     | It also fired inside OrderController::saveOrder's DB::transaction while
+     | holding a lockForUpdate row lock on that user, lengthening the window in
+     | which concurrent orders block.
+     |
+     | The relations are still loaded explicitly where they are actually wanted:
+     |   routes/api.php  /user/profile   → $request->user()->orders / ->credits
+     |   SessionController::store        → loadMissing(...)
+     |   SessionController::updateProfile→ loadMissing(...)
+     */
 
     protected $appends = ['verification_status'];
 
@@ -87,6 +115,20 @@ class User extends Authenticatable
     protected $hidden = [
         'password',
         'remember_token',
+        // Credential-equivalent: anyone holding these can complete a password reset
+        // or an email verification for this account without knowing the password.
+        // They were previously serialised by GET /api/user, GET /{locale}/user/profile
+        // and by the login and register responses.
+        'verification_token',
+        'password_reset_token',
+        'account_verification_code',
+        'google_id',
+        // KYC document paths. Not secret in themselves, but they point at government
+        // ID scans and a selfie, so they stay server-side.
+        'id_front_image',
+        'id_back_image',
+        'selfie_image',
+        'cms_draft_flag',
     ];
 
     /**

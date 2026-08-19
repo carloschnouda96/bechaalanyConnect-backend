@@ -34,7 +34,9 @@ class ContactController extends Controller
         if (in_array($requestedLocale, ['en', 'ar'])) {
             app()->setLocale($requestedLocale);
         }
-        $admin_email = FixedSetting::first()->admin_email;
+        // Null-safe: was FixedSetting::first()->admin_email, which fataled when the
+        // settings row was missing or draft-flagged.
+        $admin_email = FixedSetting::adminEmail();
 
         $request->validate([
             'name' => 'required',

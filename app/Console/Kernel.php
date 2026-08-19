@@ -34,6 +34,12 @@ class Kernel extends ConsoleKernel
         // default --limit (see CheckUmanageOrders).
         $schedule->command('umanage:sync')->hourly()->withoutOverlapping();
         $schedule->command('umanage:check-orders')->everyFiveMinutes()->withoutOverlapping();
+
+        // Bycel has no order-status endpoint: check-orders re-drives PIN claiming,
+        // and reconcile sweeps intents whose outcome was never settled.
+        $schedule->command('bycel:sync')->hourly()->withoutOverlapping();
+        $schedule->command('bycel:check-orders')->everyFiveMinutes()->withoutOverlapping();
+        $schedule->command('bycel:reconcile --auto-fail')->everyFifteenMinutes()->withoutOverlapping();
     }
 
     /**

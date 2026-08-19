@@ -2,6 +2,9 @@
 
 namespace App\Providers;
 
+use App\Observers\ProductObserver;
+use App\Observers\UserCreditsObserver;
+use App\Product;
 use App\Services\Suppliers\SupplierRegistry;
 use Illuminate\Support\ServiceProvider;
 
@@ -21,6 +24,16 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        // Registered here rather than as a booted() hook inside the model: the
+        // hellotree CMS regenerates every model file above its custom-function
+        // markers on a page-schema save, which would silently drop the hook.
+        Product::observe(ProductObserver::class);
+
+        // Both User classes map to the `users` table: App\Models\User is the auth
+        // model, App\User is what the CMS Users page and Order::users() resolve to.
+        // A balance edited on the CMS page goes through App\User, so observing only
+        // the auth model would miss exactly the case this is here to catch.
+        \App\Models\User::observe(UserCreditsObserver::class);
+        \App\User::observe(UserCreditsObserver::class);
     }
 }

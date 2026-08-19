@@ -2,20 +2,25 @@
 
 namespace App\Http\Controllers;
 
+use App\CreditLedgerEntry;
 use App\FixedSetting;
 use App\Models\User;
 use App\Order;
 use App\ProductsVariation;
+use App\Services\Credits\CreditLedger;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Validation\Rule;
 
 class OrderController extends Controller
 {
     function getAdminEmail()
     {
-        $adminEmail = FixedSetting::first()->admin_email;
-        return $adminEmail ? $adminEmail : null;
+        // Was FixedSetting::first()->admin_email, which fataled when the settings
+        // row was missing or draft-flagged — taking down order placement entirely.
+        return FixedSetting::adminEmail();
     }
 
     public function getUserOrders(Request $request)
@@ -26,7 +31,14 @@ class OrderController extends Controller
         $orders = Order::where('users_id', auth()->id())
             ->with([
                 'product_variation.product',
-                'users'
+                // Column-restricted on purpose. Order::users() resolves to App\User,
+                // which had no $hidden, so loading the whole row put the bcrypt
+                // password hash and the live password_reset_token into every page of
+                // this response. App\User now hides those, but the allow-list keeps
+                // the payload minimal and survives someone editing $hidden later.
+                // These are the fields my-orders.tsx puts on the PDF receipt, and
+                // they belong to the caller themselves.
+                'users:id,username,email,phone_number,country,business_location,business_name',
             ])
             ->orderBy('created_at', 'desc')
             ->paginate($limit);
@@ -46,19 +58,70 @@ class OrderController extends Controller
         $requestedLocale = app()->getLocale();
 
         $validatedData = $request->validate([
-            'product_variation_id' => 'required|exists:products_variations,id',
-            'quantity' => 'required|integer|min:1',
-            'recipient_user' => 'nullable|string|max:255',
-            'recipient_phone_number' => 'nullable|string|max:15',
+            // Rule::exists scoped to is_active. The plain `exists` rule accepted any
+            // variation id, so a product the supplier sync had deactivated (withdrawn
+            // upstream, or excluded by an admin) stayed orderable indefinitely — the
+            // user was charged and the order could never be fulfilled.
+            'product_variation_id' => [
+                'required',
+                'integer',
+                Rule::exists('products_variations', 'id')->where('is_active', 1),
+            ],
+            // `max` added: quantity was unbounded, so a single request could debit an
+            // arbitrarily large amount and place an absurd order at the supplier.
+            'quantity' => ['required', 'integer', 'min:1', 'max:100'],
+            'recipient_user' => ['nullable', 'string', 'max:255'],
+            // Suppliers require a real MSISDN; this previously accepted any string.
+            'recipient_phone_number' => ['nullable', 'string', 'regex:/^\+?[0-9]{7,15}$/'],
+        ], [
+            'product_variation_id.exists' => 'This product is no longer available.',
+            'recipient_phone_number.regex' => 'Enter a valid phone number (7-15 digits, optional leading +).',
         ]);
 
         $user = $request->user();
 
         if ($user->verification_status !== 'approved') {
-            return response()->json(['message' => 'Your account must be verified before placing orders.'], 403);
+            return response()->json([
+                'message' => 'Your account must be verified before placing orders.',
+                'code' => 'kyc_required',
+            ], 403);
         }
 
-        $variation = ProductsVariation::with('priceVariations')->findOrFail($validatedData['product_variation_id']);
+        $variation = ProductsVariation::with(['priceVariations', 'product'])
+            ->where('is_active', 1)
+            ->findOrFail($validatedData['product_variation_id']);
+
+        // A variation can be active while its parent product is not — the sync
+        // deactivates the product on exclusion, and is_active on the variation is
+        // set independently.
+        if (!$variation->product || !$variation->product->is_active) {
+            return response()->json([
+                'message' => 'This product is no longer available.',
+                'code' => 'product_unavailable',
+            ], 422);
+        }
+
+        // Recipient requirements mirror the storefront purchase form and what the
+        // supplier connectors actually need:
+        //   type 1 Direct Recharge   → account/player id  (recipient_user)
+        //   type 3 phone-based       → MSISDN             (recipient_phone_number)
+        // Enforced server-side too, because a missing recipient means the supplier
+        // call fails after the user has already been debited.
+        $productType = (int) ($variation->product->product_type_id ?? 0);
+
+        if ($productType === 3 && blank($validatedData['recipient_phone_number'] ?? null)) {
+            return response()->json([
+                'message' => 'A phone number is required for this product.',
+                'code' => 'recipient_phone_required',
+            ], 422);
+        }
+
+        if ($productType === 1 && blank($validatedData['recipient_user'] ?? null)) {
+            return response()->json([
+                'message' => 'A user ID is required for this product.',
+                'code' => 'recipient_user_required',
+            ], 422);
+        }
 
         // Price is determined server-side: user-type price variation, else base price
         $unitPrice = $variation->price;
@@ -70,10 +133,20 @@ class OrderController extends Controller
         }
         $totalPrice = $unitPrice * $validatedData['quantity'];
 
-        $order = DB::transaction(function () use ($user, $validatedData, $totalPrice) {
+        $shortfall = null;
+
+        $order = DB::transaction(function () use ($user, $validatedData, $totalPrice, &$shortfall) {
             $lockedUser = User::where('id', $user->id)->lockForUpdate()->first();
 
             if ($lockedUser->credits_balance < $totalPrice) {
+                // Captured under the lock so the figures reported to the user are the
+                // ones the decision was actually made on.
+                $shortfall = [
+                    'balance' => round((float) $lockedUser->credits_balance, 2),
+                    'required' => round((float) $totalPrice, 2),
+                    'missing' => round((float) $totalPrice - (float) $lockedUser->credits_balance, 2),
+                ];
+
                 return null;
             }
 
@@ -85,26 +158,63 @@ class OrderController extends Controller
             $order->recipient_user = $validatedData['recipient_user'] ?? null;
             $order->recipient_phone_number = $validatedData['recipient_phone_number'] ?? null;
             $order->statuses_id = Order::STATUS_PENDING;
+            // Credits are debited below for exactly this status, so the ledger and
+            // the order agree from the moment it is created.
+            $order->credits_applied_status = Order::STATUS_PENDING;
             $order->save();
 
-            $lockedUser->credits_balance -= $totalPrice;
-            $lockedUser->total_purchases += $totalPrice;
-            $lockedUser->save();
+            // Through the ledger rather than `$lockedUser->credits_balance -= …`.
+            // That was float arithmetic on a value that is now DECIMAL, and it left
+            // no record of why a balance changed. The arithmetic now happens in SQL
+            // and produces an auditable row.
+            CreditLedger::record(
+                $lockedUser,
+                -$totalPrice,
+                CreditLedgerEntry::REASON_ORDER_PLACED,
+                $order,
+                ['quantity' => $order->quantity, 'variation_id' => $order->product_variation_id],
+                "order:{$order->id}:place",
+                CreditLedgerEntry::ACTOR_USER,
+                $lockedUser->id
+            );
+
+            DB::table('users')->where('id', $lockedUser->id)->update([
+                'total_purchases' => DB::raw('total_purchases + ' . number_format($totalPrice, 4, '.', '')),
+            ]);
 
             return $order;
         });
 
         if (!$order) {
-            return response()->json(['message' => 'Not enough credits to place order'], 400);
+            // Machine-readable `code` plus the actual figures, so the storefront can
+            // say "you need $3.50 more" with an Add-credits link instead of toasting
+            // a bare English sentence with no context (and no way to act on it).
+            return response()->json([
+                'message' => 'Not enough credits to place this order.',
+                'code' => 'insufficient_credits',
+                'balance' => $shortfall['balance'] ?? null,
+                'required' => $shortfall['required'] ?? null,
+                'missing' => $shortfall['missing'] ?? null,
+            ], 400);
         }
 
         $admin_email = $this->getAdminEmail();
 
         //Send email to the admin to approve the order
         if ($admin_email) {
-            Mail::send('emails.order-request', compact('order', 'requestedLocale'), function ($message) use ($admin_email) {
-                $message->to($admin_email)->subject(__('emails.subjects.new_order'));
-            });
+            try {
+                Mail::send('emails.order-request', compact('order', 'requestedLocale'), function ($message) use ($admin_email) {
+                    $message->to($admin_email)->subject(__('emails.subjects.new_order'));
+                });
+            } catch (\Throwable $e) {
+                // The order is committed and the user is already debited. An SMTP
+                // failure must not surface as "order failed" — that would push the
+                // user to retry and pay twice. Logged for the admin instead.
+                Log::error('Order notification email failed', [
+                    'order_id' => $order->id,
+                    'exception' => $e,
+                ]);
+            }
         }
 
         return response()->json($order, 201);

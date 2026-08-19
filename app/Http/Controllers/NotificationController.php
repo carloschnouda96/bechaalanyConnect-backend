@@ -23,41 +23,111 @@ class NotificationController extends Controller
             return response()->json(['error' => 'Unauthorized'], 401);
         }
 
-        // Fetch all notifications for the user, ordered by creation date
-        $notifications = UserNotification::where('users_id', $user->id)
-            ->orderBy('created_at', 'desc')
-            ->get();
+        $perPage = min((int) $request->get('limit', 20), 50);
 
-        if ($notifications->isEmpty()) {
-            return response()->json([]);
+        $query = UserNotification::where('users_id', $user->id);
+
+        if ($request->boolean('unread_only')) {
+            $query->unread();
         }
 
-        $allNotifications = [];
-        $notificationIds = [];
-
-        foreach ($notifications as $notification) {
-            $data = json_decode($notification->data, true);
-
-            $allNotifications[] = [
-                'id' => $notification->id,
-                'type' => isset($data['new_status']) ? $this->mapStatusToNotificationType($data['new_status']) : 'general',
-                'request_id' => $data['credits_transfer_id'] ?? null,
-                'amount' => $data['amount'] ?? null,
-                'message' => $data['message'] ?? null,
-                'created_at' => $notification->created_at,
-                'read_at' => $notification->read_at,
-            ];
-
-            $notificationIds[] = $notification->id;
+        if ($request->filled('type')) {
+            $query->ofType($request->get('type'));
         }
 
-        // Mark ALL fetched notifications as read in a single query (more efficient)
-        if (!empty($notificationIds)) {
-            UserNotification::whereIn('id', $notificationIds)
-                ->update(['read_at' => now()]);
+        // Paginated. This used to ->get() every notification a user had ever
+        // received, and the frontend's "Load More" then sliced that same array.
+        $notifications = $query->orderBy('created_at', 'desc')->paginate($perPage);
+
+        return response()->json([
+            'notifications' => collect($notifications->items())->map(fn ($n) => $this->present($n))->all(),
+            'unread_count' => UserNotification::where('users_id', $user->id)->unread()->count(),
+            'total' => $notifications->total(),
+            'current_page' => $notifications->currentPage(),
+            'per_page' => $notifications->perPage(),
+            'last_page' => $notifications->lastPage(),
+        ]);
+
+        /*
+         | NOTE: fetching no longer marks anything read.
+         |
+         | This endpoint used to UPDATE read_at on every notification it returned, so
+         | simply opening the notifications page marked the lot as read. The unread
+         | count was therefore always zero, the bell could never show a badge, and the
+         | "Mark All as Read" button was decorative. Reading is now an explicit action:
+         | markAsRead() / markAllAsRead() below.
+         */
+    }
+
+    /** Shape a notification for the API. */
+    private function present(UserNotification $notification): array
+    {
+        // `data` is cast to array on the model now that the column is real JSON.
+        $data = is_array($notification->data) ? $notification->data : (json_decode((string) $notification->data, true) ?: []);
+
+        return [
+            'id' => $notification->id,
+            'type' => $notification->type
+                ?: (isset($data['new_status']) ? $this->mapStatusToNotificationType($data['new_status']) : 'general'),
+            'request_id' => $data['credits_transfer_id'] ?? null,
+            'order_id' => $data['order_id'] ?? null,
+            'amount' => $data['amount'] ?? null,
+            'message' => $data['message'] ?? null,
+            'created_at' => $notification->created_at,
+            'read_at' => $notification->read_at,
+        ];
+    }
+
+    /**
+     * Mark one notification read.
+     *
+     * routes/api.php has pointed at this method since the notifications feature was
+     * written, but it did not exist — every call was a 500.
+     */
+    public function markAsRead(Request $request, $id)
+    {
+        $user = Auth::user();
+
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.', 'code' => 'unauthenticated'], 401);
         }
 
-        return response()->json($allNotifications);
+        $notification = UserNotification::where('id', $id)
+            ->where('users_id', $user->id)
+            ->first();
+
+        if (!$notification) {
+            return response()->json(['message' => 'Notification not found.', 'code' => 'not_found'], 404);
+        }
+
+        if ($notification->read_at === null) {
+            $notification->markAsRead();
+        }
+
+        return response()->json([
+            'message' => 'Notification marked as read.',
+            'unread_count' => UserNotification::where('users_id', $user->id)->unread()->count(),
+        ]);
+    }
+
+    /** Mark every unread notification read. Backs the "Mark All as Read" button. */
+    public function markAllAsRead(Request $request)
+    {
+        $user = Auth::user();
+
+        if (!$user) {
+            return response()->json(['message' => 'Unauthenticated.', 'code' => 'unauthenticated'], 401);
+        }
+
+        $updated = UserNotification::where('users_id', $user->id)
+            ->unread()
+            ->update(['read_at' => now()]);
+
+        return response()->json([
+            'message' => 'All notifications marked as read.',
+            'updated' => $updated,
+            'unread_count' => 0,
+        ]);
     }
 
     public function deleteNotification(Request $request, $id)

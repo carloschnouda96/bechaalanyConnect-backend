@@ -39,6 +39,18 @@
                     </form>
                 @endif
             @endif
+
+            {{-- Bulk approve/reject. Routes through the same credit logic as editing a
+                 single order, so refunds, re-debits and supplier fulfillment all still
+                 happen. --}}
+            @include('cms::pages/_partials/bulk-status', [
+                'bulkStatusUrl' => url(config('hellotree.cms_route_prefix') . '/orders/bulk-status'),
+                'bulkStatuses' => [
+                    \App\Order::STATUS_APPROVED => 'Approved',
+                    \App\Order::STATUS_REJECTED => 'Rejected',
+                    \App\Order::STATUS_PENDING => 'Pending',
+                ],
+            ])
         </div>
         @if ($page['server_side_pagination'])
             <div class="row no-gutters">
@@ -93,7 +105,15 @@
         <div class="col-md-auto" style="padding-left:30px;">
             <label style="font-weight:700">
                 <?php $total_profit = \App\Http\Controllers\Cms\OrdersController::calculateTotalProfit(); ?>
-                Total Profit : <span class="text-success" style="font-weight:700">{{ number_format($total_profit, 2) }} $</span>
+                {{-- null means the figure could not be computed. Showing "0.00" there
+                     would be indistinguishable from a real zero and is worse than
+                     admitting the number is missing (the cause is in laravel.log). --}}
+                Total Profit :
+                @if (is_null($total_profit))
+                    <span class="text-danger" style="font-weight:700" title="See storage/logs/laravel.log">unavailable</span>
+                @else
+                    <span class="text-success" style="font-weight:700">{{ number_format($total_profit, 2) }} $</span>
+                @endif
             </label>
         </div>
         <div

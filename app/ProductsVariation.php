@@ -18,26 +18,9 @@ class ProductsVariation extends Model  implements TranslatableContract
 
     protected $guarded = ['id'];
 
-    // Hide supplier cost/linkage from the public API; external_qty_values stays
-    // visible so the storefront can render preset amounts. cost_price remains as
-    // it was before this integration.
-    protected $hidden = ['translations', 'external_id', 'external_price', 'external_type'];
+    protected $hidden = ['translations'];
 
     public $translatedAttributes = ["name", "description", "unit_label"];
-
-    protected $casts = [
-        'unit_amount' => 'integer',
-        'external_qty_values' => 'array',
-    ];
-
-    /**
-     * Single source of truth for the supplier markup formula:
-     * selling price = cost * (1 + profit% / 100), rounded to 2 decimals.
-     */
-    public static function computeSellingPrice(float $cost, float $profitPercentage): float
-    {
-        return round($cost * (1 + ($profitPercentage / 100)), 2);
-    }
 
     protected static function booted()
     {
@@ -50,6 +33,40 @@ class ProductsVariation extends Model  implements TranslatableContract
         return $this->belongsTo('App\Product');
     }
 
+    /* Start custom functions */
+
+    // Everything below the marker is preserved when the hellotree CMS regenerates
+    // this file on a page-schema save; everything above it is rewritten from
+    // src/stubs/model.stub. `use`, `$casts`, `$hidden`, hasMany relations and
+    // static helpers must therefore live down here — see App\Concerns\HidesExtraAttributes.
+
+    use \App\Concerns\HasFullPath;
+    use \App\Concerns\HidesExtraAttributes;
+
+    /**
+     * Merged into the regenerated `$hidden = ['translations']`.
+     *
+     * cost_price is the supplier's unit cost. Leaving it exposed published our
+     * margin on the public storefront: ProductController::SingleProduct returns
+     * variations unauthenticated, so anyone could derive the markup on every product.
+     * external_qty_values stays visible — the storefront renders it as preset amounts.
+     */
+    protected $extraHidden = [
+        'external_id',
+        'external_price',
+        'external_type',
+        'cost_price',
+    ];
+
+    // NOTE: money casts (price => decimal:2) are deliberately NOT added here yet.
+    // A decimal cast serialises to a JSON string ("12.50"), which the storefront
+    // would feed straight into arithmetic. They land in the money migration,
+    // together with the frontend number normaliser.
+    protected $casts = [
+        'unit_amount' => 'integer',
+        'external_qty_values' => 'array',
+    ];
+
     /**
      * All price variations (one per user type typically).
      */
@@ -58,24 +75,39 @@ class ProductsVariation extends Model  implements TranslatableContract
         return $this->hasMany(ProductPriceVariation::class, 'products_variations_id');
     }
 
-    /* Start custom functions */
+    /**
+     * Single source of truth for the supplier markup formula:
+     * selling price = cost * (1 + profit% / 100), rounded to 2 decimals.
+     */
+    public static function computeSellingPrice(float $cost, float $profitPercentage): float
+    {
+        return round($cost * (1 + ($profitPercentage / 100)), 2);
+    }
 
-    public $appends = ['full_path', 'current_price'];
+    /*
+     | `current_price` removed from $appends.
+     |
+     | The accessor calls auth()->user() during serialization, which makes every
+     | product response depend on who is asking — so nothing downstream can cache a
+     | product payload, and a queued job or console command serialising a variation
+     | resolves a different value than a web request would.
+     |
+     | It also had no consumer: the storefront resolves the tier price itself from
+     | the serialised `price_variations` relation ([productId].tsx:93), and
+     | OrderController::saveOrder recomputes it server-side from priceVariations,
+     | which is the authoritative path for what a user is actually charged.
+     |
+     | The accessor is kept for callers that want it explicitly.
+     */
+    public $appends = ['full_path'];
 
     /**
-     * Optionally eager load price variations to avoid N+1 when serializing.
-     * Comment this out if payload becomes too large and instead load conditionally in queries.
+     * Kept: the storefront reads the serialised `price_variations` key to render
+     * business-tier pricing, so this relation must be present on every variation
+     * payload. (Eloquent snake_cases relation keys on serialisation, which is why
+     * `priceVariations` arrives as `price_variations`.)
      */
     protected $with = ['priceVariations'];
-
-    public function getFullPathAttribute()
-    {
-        if ($this->image) {
-            $image = Storage::url($this->image);
-            return compact('image');
-        }
-        return null;
-    }
 
     /**
      * Expose the price for the currently authenticated user's user type.

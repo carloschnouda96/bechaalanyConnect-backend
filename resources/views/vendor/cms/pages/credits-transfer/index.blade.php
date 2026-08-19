@@ -40,6 +40,17 @@
                     </form>
                 @endif
             @endif
+
+            {{-- Bulk approve/reject top-ups. Credits move through the ledger with the
+                 same idempotency guarantee as approving one at a time. --}}
+            @include('cms::pages/_partials/bulk-status', [
+                'bulkStatusUrl' => url(config('hellotree.cms_route_prefix') . '/credits-transfer/bulk-status'),
+                'bulkStatuses' => [
+                    \App\CreditsTransfer::STATUS_APPROVED => 'Approved',
+                    \App\CreditsTransfer::STATUS_REJECTED => 'Rejected',
+                    \App\CreditsTransfer::STATUS_PENDING => 'Pending',
+                ],
+            ])
         </div>
         @if ($page['server_side_pagination'])
             <div class="row no-gutters">

@@ -29,22 +29,12 @@ class UsersController extends Controller
 
         $newStatus = (int) $request->verification_statuses_id;
 
-        // Notify the user when the admin approves or rejects their KYC documents
-        if ($user && $previousStatus != $newStatus && in_array($newStatus, [User::VERIFICATION_APPROVED, User::VERIFICATION_REJECTED])) {
-            $user->refresh();
-
-            $view = $newStatus == User::VERIFICATION_APPROVED ? 'emails.kyc-approved' : 'emails.kyc-rejected';
-            $subjectKey = $newStatus == User::VERIFICATION_APPROVED ? 'emails.subjects.kyc_approved' : 'emails.subjects.kyc_rejected';
-
-            try {
-                Mail::send($view, compact('user'), function ($message) use ($user, $subjectKey) {
-                    $message->to($user->email)->subject(__($subjectKey));
-                });
-            } catch (\Exception $e) {
-                Log::error('KYC status email failed: ' . $e->getMessage());
-            }
-
-            NotificationController::createKycNotification($user->id, $newStatus, $previousStatus);
+        // Delegated to Cms\KycController::notifyDecision rather than duplicated, so a
+        // decision made here and a decision made in the KYC review queue send the
+        // applicant exactly the same email and notification. This copy also swallowed
+        // nothing on failure and did not carry the rejection reason.
+        if ($user && $previousStatus != $newStatus) {
+            KycController::notifyDecision($user, $newStatus, $previousStatus === null ? null : (int) $previousStatus);
         }
 
         return url(config('hellotree.cms_route_prefix') . '/users');

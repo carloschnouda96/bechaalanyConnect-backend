@@ -36,6 +36,11 @@ class Kernel extends HttpKernel
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
             \App\Http\Middleware\VerifyCsrfToken::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            // This group had no throttling at all, so every CMS admin route —
+            // including POST /admin/login — was unlimited. Generous ceiling: it is
+            // a backstop against saturating PHP-FPM workers, not the login limiter
+            // (see throttle:cms-login in routes/web.php).
+            \Illuminate\Routing\Middleware\ThrottleRequests::class . ':web',
         ],
 
         'api' => [

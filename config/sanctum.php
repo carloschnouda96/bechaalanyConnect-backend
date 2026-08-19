@@ -46,7 +46,14 @@ return [
     |
     */
 
-    'expiration' => null,
+    /*
+     | Was null — tokens never expired. Combined with SessionController::destroy
+     | being the only thing that revoked them, a token captured once stayed valid
+     | forever. 30 days by default; the frontend's NextAuth session is also 30 days,
+     | so the two now age out together instead of the API token outliving the
+     | session that obtained it.
+     */
+    'expiration' => (int) env('SANCTUM_EXPIRATION', 60 * 24 * 30),
 
     /*
     |--------------------------------------------------------------------------

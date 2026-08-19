@@ -18,30 +18,14 @@ class Product extends Model  implements TranslatableContract
 
     protected $guarded = ['id'];
 
-    // Keep supplier linkage + our margin out of the public API responses.
-    protected $hidden = ['translations', 'external_source', 'external_id', 'profit_percentage', 'import_excluded'];
+    protected $hidden = ['translations'];
 
     public $translatedAttributes = ["name", "description"];
-
-    protected $casts = [
-        'profit_percentage' => 'decimal:2',
-        'import_excluded' => 'boolean',
-    ];
 
     protected static function booted()
     {
         static::addGlobalScope('cms_draft_flag', function (Builder $builder) {
             $builder->where('products.cms_draft_flag', '!=', 1);
-        });
-
-        // When an admin edits the markup of a supplier product in the CMS, push
-        // the new selling price down to its variations immediately (no need to
-        // wait for the next supplier sync). Only supplier-sourced products are
-        // touched so manually-priced products are never overwritten.
-        static::updated(function (Product $product) {
-            if ($product->external_source && $product->wasChanged('profit_percentage')) {
-                $product->recalculateSupplierPrices();
-            }
         });
     }
     public function subcategory()
@@ -56,22 +40,43 @@ class Product extends Model  implements TranslatableContract
     {
         return $this->belongsTo('App\ProductType');
     }
+
+    /* Start custom functions */
+
+    // Everything below the marker survives a hellotree CMS page-schema save;
+    // everything above it is regenerated from src/stubs/model.stub.
+    //
+    // The "recalculate variation prices when an admin edits profit_percentage"
+    // hook used to live in booted() above. booted() IS regenerated (the stub emits
+    // only the cms_draft_flag scope), so that hook was one CMS save away from
+    // silently disappearing — supplier prices would then quietly stop tracking the
+    // markup. It now lives in App\Observers\ProductObserver, registered in
+    // AppServiceProvider, i.e. outside this file entirely.
+
+    use \App\Concerns\HasFullPath;
+    use \App\Concerns\HidesExtraAttributes;
+
+    /** Merged into the regenerated `$hidden = ['translations']`. Keeps supplier linkage + our margin out of public API responses. */
+    protected $extraHidden = [
+        'external_source',
+        'external_id',
+        'profit_percentage',
+        'import_excluded',
+    ];
+
+    protected $casts = [
+        'profit_percentage' => 'decimal:2',
+        'import_excluded' => 'boolean',
+    ];
+
     public function variations()
     {
         return $this->hasMany(ProductsVariation::class, 'product_id');
     }
 
-    /* Start custom functions */
-
     public $with = ['subcategory.category'];
 
     public $appends = ['full_path'];
-
-    public function getFullPathAttribute()
-    {
-        $image = Storage::url($this->image);
-        return compact('image');
-    }
 
     /**
      * The markup % to apply to this product's supplier cost, falling back to the
@@ -82,7 +87,7 @@ class Product extends Model  implements TranslatableContract
         if ($this->profit_percentage !== null) {
             return (float) $this->profit_percentage;
         }
-        $default = optional(FixedSetting::first())->default_profit_percentage;
+        $default = FixedSetting::current()->default_profit_percentage;
         return (float) ($default ?? 0);
     }
 

@@ -165,6 +165,11 @@ class SupplierCatalogSync
             $product->external_id = $externalId;
             $product->profit_percentage = null; // null → global default
             $product->slug = $this->uniqueSlug($name, $externalId, $source);
+            // Seeded once, on create only. Most suppliers offer no per-product image
+            // (Yassen exposes only a category image; Swift/1xpanel/usharez none at
+            // all), so this is usually null and the storefront shows its placeholder
+            // until an admin uploads one on the CMS products page.
+            $product->image = $dto->image;
         }
 
         // Excluded products (admin's "except Netflix…" switch) stay inactive even
@@ -172,6 +177,9 @@ class SupplierCatalogSync
         $excluded = (bool) ($product->import_excluded ?? false);
         $active = self::isActiveAfterImport($dto->available, $excluded);
 
+        // NOTE: $product->image is deliberately not touched on update — an admin's
+        // CMS upload must survive every re-sync. See ensureLocalTree() for the same
+        // rule applied to categories.
         $product->subcategory_id = $subcategory->id;
         $product->product_type_id = $dto->productTypeId;
         $product->is_active = $active;
@@ -235,6 +243,9 @@ class SupplierCatalogSync
             $category->cms_draft_flag = 0;
             $this->setTranslations($category, ['title' => $name, 'description' => '']);
             $category->save();
+        } elseif ($this->shouldRefreshImage($category->image)) {
+            $category->image = $supplierCategory->image;
+            $category->save();
         }
 
         $subcategory = $supplierCategory->subcategory_id
@@ -249,6 +260,9 @@ class SupplierCatalogSync
             $subcategory->is_active = 1;
             $subcategory->cms_draft_flag = 0;
             $this->setTranslations($subcategory, ['title' => $name, 'description' => '']);
+            $subcategory->save();
+        } elseif ($this->shouldRefreshImage($subcategory->image)) {
+            $subcategory->image = $supplierCategory->image;
             $subcategory->save();
         }
 
@@ -315,6 +329,20 @@ class SupplierCatalogSync
         }
 
         return $count;
+    }
+
+    /**
+     * May the sync overwrite this image with the supplier's current one?
+     *
+     * Only when it is empty or is itself a supplier URL. A local disk path means an
+     * admin uploaded the image on the CMS page, and that choice is permanent — it is
+     * the whole point of the CMS image field on imported rows.
+     */
+    private function shouldRefreshImage(?string $current): bool
+    {
+        $current = trim((string) $current);
+
+        return $current === '' || Str::startsWith($current, ['http://', 'https://', '//']);
     }
 
     /** Normalise qty_values (null | list of amounts | {min,max}) for storage. */

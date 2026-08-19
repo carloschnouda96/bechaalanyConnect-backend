@@ -35,13 +35,10 @@ class Subcategory extends Model  implements TranslatableContract
 
     /* Start custom functions */
 
-    public $appends = ['full_path'];
+    // Below the marker so a hellotree CMS page-schema save cannot rewrite it away.
+    use \App\Concerns\HasFullPath;
 
-    public function getFullPathAttribute()
-    {
-        $image = Storage::url($this->image);
-        return compact('image');
-    }
+    public $appends = ['full_path'];
 
     /* End custom functions */
 }

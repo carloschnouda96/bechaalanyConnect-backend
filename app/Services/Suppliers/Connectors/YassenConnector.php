@@ -58,7 +58,7 @@ class YassenConnector implements SupplierConnector
                 name: trim((string) ($raw['name'] ?? ('Product ' . $externalId))),
                 categoryExternalId: (string) ($raw['parent_id'] ?? ''),
                 categoryName: (string) ($raw['category_name'] ?? ('Category ' . ($raw['parent_id'] ?? ''))),
-                categoryImage: $raw['category_img'] ?? null,
+                categoryImage: $this->normalizeImageUrl($raw['category_img'] ?? null),
                 unitCost: (float) ($raw['price'] ?? 0),
                 available: (bool) ($raw['available'] ?? true),
                 productTypeId: $this->resolveProductTypeId($raw),
@@ -68,6 +68,32 @@ class YassenConnector implements SupplierConnector
         }
 
         return $out;
+    }
+
+    /**
+     * Rebase a feed image URL onto the configured API host.
+     *
+     * Yassen reports `category_img` on its storefront host (yassen-card.com), which
+     * is a Nuxt SPA: every /images/... path there answers 200 with the homepage HTML
+     * instead of the file, so the URL looks valid but never renders. The same path on
+     * the API host (api.yassen-card.com) serves the real image/webp. Verified against
+     * the live feed — 6/6 sampled URLs behaved this way.
+     */
+    private function normalizeImageUrl(?string $url): ?string
+    {
+        $url = trim((string) $url);
+        if ($url === '') {
+            return null;
+        }
+
+        $base = rtrim((string) config('services.yassen.base_url'), '/');
+        $path = (string) (parse_url($url, PHP_URL_PATH) ?: '');
+        if ($base === '' || $path === '' || $path === '/') {
+            // Nothing to rebase onto, or a host-only URL that names no file.
+            return $path === '' || $path === '/' ? null : $url;
+        }
+
+        return $base . '/' . ltrim($path, '/');
     }
 
     public function placeOrder(Order $order, ProductsVariation $variation): SupplierOrderResult

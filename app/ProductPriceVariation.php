@@ -34,6 +34,12 @@ class ProductPriceVariation extends Model
         return $this->belongsTo('App\UserType');
     }
 
+    /* Start custom functions */
+
+    // Below the marker so a hellotree CMS page-schema save cannot rewrite it away.
+    // This scope is called from ProductsVariation::getCurrentPriceAttribute(), so
+    // losing it would fatal on every product page for a business-tier user.
+
     /**
      * Scope: limit price variations to a specific user type id.
      */
@@ -41,10 +47,6 @@ class ProductPriceVariation extends Model
     {
         return $query->where('user_types_id', $userTypeId);
     }
-
-    /* Start custom functions */
-
-
 
     /* End custom functions */
 }

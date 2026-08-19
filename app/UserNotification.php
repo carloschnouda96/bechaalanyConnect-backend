@@ -36,13 +36,28 @@ class UserNotification extends Model
 
     /* Start custom functions */
 
-    /**
-     * Get the user that owns the notification
+    // Below the marker so a hellotree CMS page-schema save cannot rewrite it away.
+
+    protected $casts = [
+        // The column is a real json type now; without this cast every read would
+        // hand callers a raw string and every write would need manual encoding.
+        'data' => 'array',
+        'read_at' => 'datetime',
+    ];
+
+    /*
+     | A second relation named user() used to live here:
+     |
+     |     public function user() { return $this->belongsTo(User::class); }
+     |
+     | It was broken twice over. `User::class` resolves to App\User inside this
+     | namespace while users() above points at App\Models\User, so the two relations
+     | returned different classes for the same row. And with no foreign key argument
+     | Eloquent derived `user_id`, while the actual column is `users_id` — so any use
+     | of ->user or ->with('user') failed with "Unknown column
+     | user_notifications.user_id". It is deleted rather than fixed: users() already
+     | does the job correctly.
      */
-    public function user()
-    {
-        return $this->belongsTo(User::class);
-    }
 
     /**
      * Scope to get unread notifications
@@ -53,7 +68,10 @@ class UserNotification extends Model
     }
 
     /**
-     * Scope to get notifications by type
+     * Scope to get notifications by type.
+     *
+     * This threw "Unknown column 'type'" until the column was added — the scope had
+     * been written against a column that did not exist.
      */
     public function scopeOfType($query, $type)
     {

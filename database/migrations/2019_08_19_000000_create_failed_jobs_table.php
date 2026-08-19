@@ -11,6 +11,12 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // See the note in 2014_10_12_100000_create_password_reset_tokens_table:
+        // the table exists on the live database but was never recorded as run.
+        if (Schema::hasTable('failed_jobs')) {
+            return;
+        }
+
         Schema::create('failed_jobs', function (Blueprint $table) {
             $table->id();
             $table->string('uuid')->unique();
