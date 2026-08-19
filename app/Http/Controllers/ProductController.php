@@ -15,6 +15,11 @@ class ProductController extends Controller
      */
     public function index($locale, $category_slug, $subcategory_slug)
     {
+        $category = Category::where('slug', $category_slug)->firstOrFail();
+        $subcategory = Subcategory::where('slug', $subcategory_slug)
+            ->where('category_id', $category->id)
+            ->firstOrFail();
+
         $products = Product::where('is_active', 1)->whereHas('subcategory', function ($query) use ($subcategory_slug, $category_slug) {
             $query->whereHas('category', function ($q2) use ($category_slug) {
                 $q2->where('slug', $category_slug);
@@ -22,8 +27,6 @@ class ProductController extends Controller
             $query->where('slug', $subcategory_slug);
         })->orderBy('ht_pos')->get();
 
-        $subcategory = Subcategory::where('slug', $subcategory_slug)->first();
-        $category = Category::where('slug', $category_slug)->first();
         return response()->json([
             'products' => $products,
             'subcategory' => $subcategory->title,
@@ -33,6 +36,11 @@ class ProductController extends Controller
 
     public function SingleProduct($locale, $category_slug, $subcategory_slug, $slug)
     {
+        $category = Category::where('slug', $category_slug)->firstOrFail();
+        $subcategory = Subcategory::where('slug', $subcategory_slug)
+            ->where('category_id', $category->id)
+            ->firstOrFail();
+
         $product_variations = ProductsVariation::whereHas('product', function ($query) use ($slug) {
             $query->where('slug', $slug);
         })
@@ -42,9 +50,8 @@ class ProductController extends Controller
         $product = Product::where('slug', $slug)
             ->with('related_products')
             ->with('product_type')
-            ->first();
-        $subcategory = Subcategory::where('slug', $subcategory_slug)->first();
-        $category = Category::where('slug', $category_slug)->first();
+            ->firstOrFail();
+
         return response()->json([
             'product_variations' => $product_variations,
             'product' => $product,
