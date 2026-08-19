@@ -14,7 +14,12 @@ return new class extends Migration
 
     public function up(): void
     {
-        // Lookup page required by the CMS select field on the users page
+        // Lookup page required by the CMS select field on the users page.
+        // Guarded 2026-08-13: unconditional on the first version, which would
+        // have inserted a duplicate cms_pages row (and a duplicate CMS menu
+        // entry) had this migration ever re-run against a database that
+        // already had this route registered.
+        if (!DB::table('cms_pages')->where('route', 'verification-statuses')->exists()) {
         DB::table('cms_pages')->insert([
             'icon' => null,
             'display_name' => 'Verification Status',
@@ -56,6 +61,7 @@ return new class extends Migration
             'created_at' => now(),
             'updated_at' => now(),
         ]);
+        }
 
         // Append the KYC fields to the users CMS page
         $page = DB::table('cms_pages')->where('route', 'users')->first();
