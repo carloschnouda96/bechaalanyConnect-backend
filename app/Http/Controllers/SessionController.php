@@ -41,14 +41,31 @@ class SessionController extends Controller
         return response()->json(['token' => $token, 'user' => $user], 200);
     }
 
-    public function destroy()
+    public function destroy(Request $request)
     {
         /** @var \App\Models\User|null $user */
-        $user = Auth::user();
+        $user = $request->user();
+
         if ($user) {
-            $user->tokens()->delete(); // deletes all tokens for the user
+            // Revoke ONLY the token this request authenticated with. This used to be
+            // $user->tokens()->delete(), which signed the user out of every device
+            // and browser they had ever logged in from — logging out on a phone
+            // silently killed a desktop session mid-checkout.
+            $current = $user->currentAccessToken();
+
+            if ($current) {
+                $current->delete();
+            } else {
+                // Session-guard fallback (no bearer token on the request).
+                $user->tokens()->delete();
+            }
         }
-        Auth::logout();
+
+        // Auth::logout() is a no-op for the token guard; kept for the session guard.
+        if (Auth::guard('web')->check()) {
+            Auth::guard('web')->logout();
+        }
+
         return response()->json(['message' => 'Logged out successfully.'], 200);
     }
 
@@ -102,6 +119,15 @@ class SessionController extends Controller
         // Update password
         $user->password = Hash::make($validatedData['new_password']);
         $user->save();
+
+        // Changing a password is how a user reacts to a suspected compromise, so it
+        // has to actually evict whoever else is holding a token. Every other session
+        // is revoked; the caller's own token survives so they are not logged out of
+        // the device they just did this on.
+        $current = $user->currentAccessToken();
+        $user->tokens()
+            ->when($current, fn ($q) => $q->where('id', '!=', $current->id))
+            ->delete();
 
         return response()->json(['message' => __('auth.password_changed')], 200);
     }

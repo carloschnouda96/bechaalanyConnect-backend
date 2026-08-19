@@ -11,6 +11,14 @@ return new class extends Migration
      */
     public function up(): void
     {
+        // Guarded because this table pre-dates the migrations table on the live
+        // database: it exists but was never recorded as run, so an unguarded
+        // Schema::create aborts `php artisan migrate` before any later migration
+        // gets a chance to run. Verified column-for-column against the live schema.
+        if (Schema::hasTable('password_reset_tokens')) {
+            return;
+        }
+
         Schema::create('password_reset_tokens', function (Blueprint $table) {
             $table->string('email')->primary();
             $table->string('token');

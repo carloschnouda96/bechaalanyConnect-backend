@@ -44,6 +44,25 @@ return [
             'throw' => false,
         ],
 
+        /*
+         | Private uploads: government ID scans, selfies and payment receipts.
+         |
+         | These were written to the `public` disk, which is symlinked to
+         | public/storage and served directly by the webserver with no auth — the
+         | only thing protecting a customer's passport photo was the 40-character
+         | random filename. Anything under this disk lives outside the document
+         | root and can only be reached through an authorising controller.
+         |
+         | Deliberately no 'url' key: Storage::disk('private')->url() should fail
+         | loudly rather than silently mint an unreachable public link.
+         */
+        'private' => [
+            'driver' => 'local',
+            'root' => storage_path('app/private'),
+            'visibility' => 'private',
+            'throw' => false,
+        ],
+
         's3' => [
             'driver' => 's3',
             'key' => env('AWS_ACCESS_KEY_ID'),

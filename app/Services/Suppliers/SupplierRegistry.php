@@ -2,6 +2,7 @@
 
 namespace App\Services\Suppliers;
 
+use App\Services\Suppliers\Connectors\BycelConnector;
 use App\Services\Suppliers\Connectors\OneXPanelConnector;
 use App\Services\Suppliers\Connectors\SwiftConnector;
 use App\Services\Suppliers\Connectors\UmanageConnector;
@@ -24,6 +25,7 @@ class SupplierRegistry
         OneXPanelConnector::KEY => OneXPanelConnector::class,
         UsharezConnector::KEY => UsharezConnector::class,
         UmanageConnector::KEY => UmanageConnector::class,
+        BycelConnector::KEY => BycelConnector::class,
     ];
 
     public function __construct(private Container $container)

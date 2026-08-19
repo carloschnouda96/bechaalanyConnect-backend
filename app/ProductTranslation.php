@@ -9,9 +9,10 @@ use Carbon\Carbon;
 
 
 
-class ProductTranslation extends Model 
+class ProductTranslation extends Model
 {
-	
+    use \App\Concerns\HasFullPath;
+
 
     protected $table = 'products_translations';
 
@@ -24,12 +25,6 @@ class ProductTranslation extends Model
     /* Start custom functions */
 
     public $appends = ['full_path'];
-
-    public function getFullPathAttribute()
-    {
-        $image = Storage::url($this->image);
-        return compact('image');
-    }
 
     /* End custom functions */
 }

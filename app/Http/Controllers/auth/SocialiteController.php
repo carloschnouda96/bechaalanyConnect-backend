@@ -5,6 +5,7 @@ namespace App\Http\Controllers\auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Auth\GoogleIdTokenVerifier;
 use Laravel\Socialite\Facades\Socialite;
 use Illuminate\Http\Request;
 
@@ -53,40 +54,66 @@ class SocialiteController extends Controller
         return redirect(config('app.front_url') . "/oauth-success?token=$token");
     }
 
-    public function syncUser(Request $request)
+    /**
+     * Exchange a Google ID token for a Sanctum token.
+     *
+     * Called server-to-server from the Next.js NextAuth `jwt` callback, which
+     * already receives `account.id_token` from Google.
+     *
+     * SECURITY: the request body is NOT a source of identity. It previously was —
+     * this endpoint accepted `email`, `username` and `google_id` as plain fields and
+     * issued a working bearer token for whichever account matched, with no proof of
+     * anything. Because the route is public, that let anyone take over any account
+     * by POSTing its email address. Every identity value below is now read out of
+     * the cryptographically verified token instead.
+     */
+    public function syncUser(Request $request, GoogleIdTokenVerifier $verifier)
     {
-
-        $data = $request->validate([
-            'email' => 'required|email',
-            'username' => 'required|string',
-            'google_id' => 'required|string',
+        $request->validate([
+            'id_token' => 'required|string',
         ]);
 
-        $user = User::where('google_id', $data['google_id'])
-            ->orWhere('email', $data['email'])
+        // Throws InvalidGoogleTokenException (renders 401) unless the signature,
+        // issuer, audience, expiry and email_verified claim all check out.
+        $claims = $verifier->verify($request->input('id_token'));
+
+        // Match on the Google subject first: it is the stable, immutable account key.
+        // Falling back to email covers a user who registered with a password and is
+        // now signing in with Google for the first time — safe only because the token
+        // carried email_verified = true.
+        $user = User::where('google_id', $claims['sub'])
+            ->orWhere('email', $claims['email'])
             ->first();
 
         if ($user) {
-            // Update existing user
-            $user->update([
-                'username' => $data['username'],
-                'google_id' => $data['google_id'],
+            $attributes = [
+                'google_id' => $claims['sub'],
                 'email_verified' => 1,
-            ]);
+            ];
+
+            // Don't clobber a username the user chose themselves with their Google
+            // display name; only fill it if we have nothing.
+            if (blank($user->username) && filled($claims['name'])) {
+                $attributes['username'] = $claims['name'];
+            }
+
+            $user->update($attributes);
         } else {
-            // Create new user
             $user = User::create([
-                'username' => $data['username'],
-                'email' => $data['email'],
-                'google_id' => $data['google_id'],
-                'password' => bcrypt(str()->random(24)),
+                'username' => $claims['name'] ?: strstr($claims['email'], '@', true),
+                'email' => $claims['email'],
+                'google_id' => $claims['sub'],
+                'password' => bcrypt(str()->random(40)),
                 'email_verified' => 1,
                 'credits_balance' => 0,
+                // These two were missing here while the OAuth redirect path set them,
+                // leaving Google-created users with NULL lifetime totals.
+                'total_purchases' => 0,
+                'received_amount' => 0,
                 'verification_statuses_id' => User::VERIFICATION_UNSUBMITTED,
             ]);
         }
 
-        // Issue Laravel token
         $token = $user->createToken('auth_token')->plainTextToken;
 
         return response()->json([

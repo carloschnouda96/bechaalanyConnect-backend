@@ -28,6 +28,21 @@ class FulfillSupplierOrderJob implements ShouldQueue
 
     public function __construct(public int $orderId)
     {
+        /*
+         * Never run before the transaction that dispatched this job has committed.
+         *
+         * Cms\OrdersController approves the order and moves credits inside a
+         * DB::transaction. Without this, the job can start while that transaction is
+         * still open, read the pre-approval row, decide there is nothing to do and
+         * exit — leaving an order the customer paid for that is never placed with the
+         * supplier.
+         *
+         * Set through Queueable::afterCommit() rather than by declaring a property:
+         * the trait already declares `public $afterCommit;` with no default, and PHP
+         * treats any redeclaration with a different default as an incompatible
+         * composition — a fatal error the moment the class is autoloaded.
+         */
+        $this->afterCommit();
     }
 
     public function handle(SupplierOrderFulfillment $fulfillment): void

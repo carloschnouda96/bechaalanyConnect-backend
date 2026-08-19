@@ -138,6 +138,66 @@ return [
     ],
 
     /*
+    | Bycel / Power Group supplier integration (https://www.bycel.app/OutAPIV1/).
+    |
+    | Auth is ONE header, `InApiKey` — and, uniquely among our suppliers, the
+    | calling server's egress IP must be WHITELISTED by Power Group. A bad key
+    | answers "Unauthorized client"; a non-whitelisted IP answers "<ip> Forbidden".
+    | Both are classified RETRYABLE, never as customer-facing failures: a host
+    | migration that changes the egress IP would otherwise mass-refund and reject
+    | every pending order. Test keys are prefixed TEST_.
+    |
+    | Bycel self-reports its FX rate PER CATALOG ROW (ValueOf1Dollar_LBP), so this
+    | connector does NOT use the shared ExchangeRate helper and needs no LBP_PER_USD.
+    |
+    | buy_voucher returns no order id and no PIN — PINs appear ONLY in
+    | /last_pin_report. See BycelPinResolver for the watermark + mutex + claim design.
+    |
+    | NOT importable, and why: alfa_sms_services has no prices and no purchase
+    | endpoint; alfa_days_products is priced but has no purchase endpoint;
+    | alfa_transfer_credits / touch_transfer_credits are purchasable but Power Group
+    | publishes no cost for them (measure it as a /balance delta before enabling).
+    */
+    'bycel' => [
+        'base_url' => env('BYCEL_BASE_URL', 'https://www.bycel.app/OutAPIV1/'),
+        'key'      => env('BYCEL_API_KEY'),
+        'enabled'  => env('BYCEL_SYNC_ENABLED', false),
+
+        'vouchers_enabled' => env('BYCEL_VOUCHERS_ENABLED', true),
+        'recharge_enabled' => env('BYCEL_RECHARGE_ENABLED', true),
+
+        // The purchase mutex TTL is DERIVED from these timeouts in
+        // BycelConnector::withPurchaseLock() — never configure it independently, or
+        // a TTL below the worst-case request silently breaks the "one purchase in
+        // flight" invariant the claim design depends on.
+        'lock_wait_seconds' => env('BYCEL_LOCK_WAIT', 25),
+        'timeout_get'       => env('BYCEL_TIMEOUT_GET', 30),
+        'timeout_post'      => env('BYCEL_TIMEOUT_POST', 60),
+
+        // In-lock poll while a freshly-bought PIN materialises. GETs only, but the
+        // lock serialises every Bycel purchase while held — keep it short.
+        'claim_attempts'   => env('BYCEL_CLAIM_ATTEMPTS', 3),
+        'claim_backoff_ms' => env('BYCEL_CLAIM_BACKOFF_MS', 1000),
+
+        // /last_pin_report page sizes, escalated until the page provably reaches
+        // back past our watermark. Claiming without proven coverage is forbidden.
+        'report_page_sizes' => [20, 50, 100, 200],
+
+        'price_tolerance_lbp' => env('BYCEL_PRICE_TOLERANCE_LBP', 1.0),
+        'face_tolerance_usd'  => env('BYCEL_FACE_TOLERANCE_USD', 0.005),
+
+        // product_list says "Alfa Invoice"; last_pin_report says "alfa 4.5$ " (note
+        // the trailing space). Two vocabularies — leave OFF until probing proves
+        // they agree.
+        'match_product_name' => env('BYCEL_MATCH_PRODUCT_NAME', false),
+
+        'product_list_ttl' => env('BYCEL_PRODUCT_LIST_TTL', 600),
+
+        // Emergency override for a wrong self-reported rate. null = trust the feed.
+        'rate_override' => env('BYCEL_RATE_OVERRIDE'),
+    ],
+
+    /*
     | Shared platform LBP→USD divisor, used by every supplier that quotes in
     | Lebanese Pounds (usharez, umanage). Fixed Settings `lbp_per_usd` overrides
     | it so admins can update the rate from the CMS without a deploy; a

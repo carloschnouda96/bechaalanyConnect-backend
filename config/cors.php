@@ -19,7 +19,21 @@ return [
 
     'allowed_methods' => ['*'],
 
-    'allowed_origins' => ['*'],
+    /*
+     | Was ['*'], i.e. any site on the internet could call this API from a
+     | visitor's browser. That was survivable only because the API is bearer-token
+     | based and supports_credentials is false, so no cookie could ride along — but
+     | it still let any origin scrape every public endpoint, and gave any XSS
+     | anywhere a free relay for a stolen token.
+     |
+     | Driven by CORS_ALLOWED_ORIGINS (comma-separated). Falls back to the
+     | configured frontend URL so a correctly configured deployment keeps working
+     | even if the new variable is missed.
+     */
+    'allowed_origins' => array_values(array_filter(array_map(
+        'trim',
+        explode(',', (string) env('CORS_ALLOWED_ORIGINS', (string) env('APP_FRONT_URL', 'http://localhost:3000')))
+    ))),
 
     'allowed_origins_patterns' => [],
 

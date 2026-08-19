@@ -8,6 +8,10 @@ return [
         'kyc_submitted' => 'New Account Verification Request',
         'kyc_approved' => 'Your Account Has Been Verified',
         'kyc_rejected' => 'Account Verification Rejected',
+        'password_changed' => 'Password Changed Successfully',
+        'credits_approved' => 'Your Credits Request Has Been Approved',
+        'new_credit_request' => 'New Credit Transfer Request',
+        'contact_request' => 'New Contact Form Message',
     ],
     'kyc_submitted' => [
         'hello_admin' => 'Hello Admin:',
@@ -28,6 +32,7 @@ return [
     'kyc_rejected' => [
         'greeting' => 'Dear :name,',
         'body' => 'Unfortunately, your identity verification documents were rejected. Please sign in and resubmit clear photos of your ID (front and back) and a new selfie.',
+        'reason_label' => 'Reason:',
         'closing' => 'If you believe this is a mistake, please contact support.',
     ],
     'verify_email' => [

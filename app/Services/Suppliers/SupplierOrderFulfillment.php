@@ -2,10 +2,13 @@
 
 namespace App\Services\Suppliers;
 
+use App\CreditLedgerEntry;
 use App\Http\Controllers\NotificationController;
 use App\Models\User;
 use App\Order;
 use App\ProductsVariation;
+use App\Services\Credits\CreditLedger;
+use App\Services\Credits\DuplicateLedgerEntryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -123,7 +126,8 @@ class SupplierOrderFulfillment
 
     private function refund(Order $order): void
     {
-        $refunded = DB::transaction(function () use ($order) {
+        try {
+            $refunded = DB::transaction(function () use ($order) {
             $locked = Order::withoutGlobalScope('cms_draft_flag')->where('id', $order->id)->lockForUpdate()->first();
             if (!$locked || (int) $locked->statuses_id === Order::STATUS_REJECTED) {
                 return null;
@@ -131,18 +135,50 @@ class SupplierOrderFulfillment
 
             $user = User::where('id', $locked->users_id)->lockForUpdate()->first();
             if ($user) {
-                $user->credits_balance += $locked->total_price;
-                $user->total_purchases -= $locked->total_price;
-                $user->save();
+                // Through the ledger rather than `$user->credits_balance += …`:
+                // that was float arithmetic with no audit record, so a supplier
+                // failure silently changed a balance with nothing to show for it.
+                // The idempotency key makes a re-run of this job a no-op instead of
+                // a second refund.
+                CreditLedger::record(
+                    $user,
+                    (float) $locked->total_price,
+                    CreditLedgerEntry::REASON_SUPPLIER_REFUND,
+                    $locked,
+                    [
+                        'external_source' => $locked->external_source,
+                        'external_status' => $locked->external_status,
+                    ],
+                    "order:{$locked->id}:supplier_refund",
+                    CreditLedgerEntry::ACTOR_SYSTEM
+                );
+
+                DB::table('users')->where('id', $user->id)->update([
+                    'total_purchases' => DB::raw('GREATEST(total_purchases - ' . number_format((float) $locked->total_price, 4, '.', '') . ', 0)'),
+                ]);
             }
 
             $locked->statuses_id = Order::STATUS_REJECTED;
+            // Keep the ledger's view of this order in step, so a later CMS status
+            // change does not think it still owes a refund.
+            $locked->credits_applied_status = Order::STATUS_REJECTED;
             $locked->save();
 
             $order->statuses_id = Order::STATUS_REJECTED;
 
-            return $locked;
-        });
+                return $locked;
+            });
+        } catch (DuplicateLedgerEntryException $e) {
+            // This refund was already applied — the job retried, or the order-status
+            // poll and a CMS rejection raced. The transaction rolled back, so nothing
+            // is half-done and the customer was refunded exactly once.
+            Log::info('Supplier refund already applied, skipping', [
+                'order_id' => $order->id,
+                'key' => $e->idempotencyKey,
+            ]);
+
+            return;
+        }
 
         // Notify the customer (in-app) that the supplier cancelled their order and
         // the credits were returned. Only fires on the real APPROVED→REJECTED transition.

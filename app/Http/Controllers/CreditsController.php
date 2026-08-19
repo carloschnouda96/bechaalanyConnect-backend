@@ -6,7 +6,9 @@ use App\CreditsTransfer;
 use App\CreditsType;
 use App\FixedSetting;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 
 class CreditsController extends Controller
 {
@@ -51,7 +53,9 @@ class CreditsController extends Controller
     //Handle transfer credit request
     public function transferCreditRequest(Request $request)
     {
-        $admin_email = FixedSetting::first()->admin_email;
+        // Null-safe: FixedSetting::first()->admin_email fataled when the settings row
+        // was missing or draft-flagged, blocking every credit request.
+        $admin_email = FixedSetting::adminEmail();
 
         //get Current User
         $user = $request->user();
@@ -67,8 +71,12 @@ class CreditsController extends Controller
             'credits_types_id' => 'required|exists:credits_types,id',
         ]);
 
-        $receiptImagePath = $request->file('receipt_image')->store('receipts', 'public');
-
+        // PRIVATE disk: a payment receipt is a bank/wallet screenshot carrying the
+        // customer's name, account or phone number and transfer reference. On the
+        // `public` disk these were served straight off public/storage/receipts/ with
+        // no authentication. Reachable now only via the owner-scoped route below
+        // (or the admin panel).
+        $receiptImagePath = $request->file('receipt_image')->store('receipts', 'private');
 
         $transferRequest = new CreditsTransfer();
         $transferRequest->users_id = $user->id;
@@ -78,14 +86,54 @@ class CreditsController extends Controller
         $transferRequest->statuses_id = CreditsTransfer::STATUS_PENDING;
         $transferRequest->save();
 
-        Mail::send('emails.admin-new-credit-transfer-request', compact('user', 'transferRequest'), function ($message) use ($user, $admin_email) {
-            $message->to($admin_email)->subject('New Credit Transfer Request from ' . $user->username);
-        });
-
+        if ($admin_email) {
+            try {
+                Mail::send('emails.admin-new-credit-transfer-request', compact('user', 'transferRequest'), function ($message) use ($user, $admin_email) {
+                    $message->to($admin_email)->subject(__('emails.subjects.new_credit_request') . ' - ' . $user->username);
+                });
+            } catch (\Throwable $e) {
+                // The request is already saved and visible to the admin in the CMS;
+                // a mail failure must not tell the user their top-up did not register.
+                Log::error('Credit transfer admin notification failed', ['exception' => $e]);
+            }
+        }
 
         return response()->json([
             'message' => 'Transfer credit request submitted successfully.',
             'transfer_request' => $transferRequest,
         ]);
+    }
+
+    /**
+     * Stream a payment receipt.
+     *
+     * Reached through a temporary signed URL (see routes/api.php `credits.receipt`),
+     * because the storefront renders receipts in an <img> tag which cannot send an
+     * Authorization header. Authorisation therefore lives in the signature: a URL is
+     * only ever minted while serialising a transfer through an owner-scoped query
+     * (CreditsController::getUserCredits filters on users_id), and the `signed`
+     * middleware rejects any URL that was altered or has expired.
+     */
+    public function receipt(Request $request, $id)
+    {
+        $transfer = CreditsTransfer::find($id);
+
+        if (!$transfer || blank($transfer->receipt_image)) {
+            return response()->json(['message' => 'Receipt not found.', 'code' => 'not_found'], 404);
+        }
+
+        foreach (['private', 'public'] as $disk) {
+            // `public` is checked as a fallback so receipts uploaded before the move
+            // keep working until the migrate command has run.
+            if (Storage::disk($disk)->exists($transfer->receipt_image)) {
+                return Storage::disk($disk)->response(
+                    $transfer->receipt_image,
+                    null,
+                    ['Cache-Control' => 'private, max-age=0, no-store']
+                );
+            }
+        }
+
+        return response()->json(['message' => 'Receipt not found.', 'code' => 'not_found'], 404);
     }
 }

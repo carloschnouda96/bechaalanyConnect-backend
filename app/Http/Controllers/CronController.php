@@ -15,9 +15,9 @@ use Illuminate\Support\Facades\Artisan;
  * unreliable under PHP-FPM. Each endpoint runs every enabled supplier, so adding
  * a future supplier needs no cron change.
  *
- * Optional shared-secret guard: when `services.cron.token` (env CRON_TOKEN) is
- * set, a matching `?token=` is required; otherwise the endpoint is open (matching
- * the host's other tokenless cron jobs).
+ * REQUIRED shared-secret guard: `services.cron.token` (env CRON_TOKEN) must be set,
+ * and the caller must present it as an `X-Cron-Token` header or a `?token=` query
+ * parameter. With no token configured the endpoints return 503 rather than running.
  */
 class CronController extends Controller
 {
@@ -35,6 +35,58 @@ class CronController extends Controller
     public function suppliersCheckOrders(Request $request): JsonResponse
     {
         return $this->runForEnabledSuppliers($request, 'check-orders');
+    }
+
+    /**
+     * Verify every balance against the credit ledger (recommended: nightly).
+     *
+     * Reports rather than fixes. A mismatch means credits moved through a path that
+     * did not record itself, which is the signal for a double-credit, a missed refund,
+     * or a hand-edited balance — the class of bug that was previously undetectable.
+     * Applying a correction is a deliberate human decision (`--fix` on the CLI).
+     */
+    public function reconcileCredits(Request $request): JsonResponse
+    {
+        $this->authorizeCron($request);
+
+        $exitCode = Artisan::call('credits:reconcile');
+
+        return response()->json([
+            'ok' => $exitCode === 0,
+            'action' => 'credits:reconcile',
+            'balanced' => $exitCode === 0,
+            'output' => trim(Artisan::output()),
+        ], $exitCode === 0 ? 200 : 409);
+    }
+
+    /**
+     * Drain the queue (recommended: every minute).
+     *
+     * This host has no shell crontab and no supervisor, so there is nowhere to run a
+     * long-lived `queue:work`. Without this endpoint, moving QUEUE_CONNECTION off
+     * `sync` would silently park every supplier fulfillment in the jobs table
+     * forever — worse than running them inline.
+     *
+     * --stop-when-empty so the request ends as soon as there is nothing left, and
+     * --max-time so a busy queue cannot hold a PHP-FPM worker indefinitely; the next
+     * cron tick picks up whatever is left.
+     */
+    public function queueWork(Request $request): JsonResponse
+    {
+        $this->authorizeCron($request);
+
+        @set_time_limit(0);
+        ignore_user_abort(true);
+
+        Artisan::call('queue:work', [
+            '--stop-when-empty' => true,
+            '--max-time' => 50,
+            // A failing job must not be retried forever against a supplier that
+            // charges per attempt; the job's own $tries still applies.
+            '--tries' => 3,
+        ]);
+
+        return response()->json(['ok' => true, 'action' => 'queue:work']);
     }
 
     /**
@@ -61,11 +113,34 @@ class CronController extends Controller
         return response()->json(['ok' => true, 'action' => $action, 'suppliers' => $ran]);
     }
 
-    /** Enforce the shared secret only when one is configured. */
+    /**
+     * Require the shared secret. Fails CLOSED.
+     *
+     * This used to skip the check entirely when CRON_TOKEN was empty — and
+     * .env.example shipped it empty, so the default deployment left both endpoints
+     * fully public. Each hit runs a complete multi-supplier sync in-process with
+     * set_time_limit(0) and ignore_user_abort(true), so an anonymous caller could
+     * pin PHP-FPM workers indefinitely and burn the suppliers' rate-limited API
+     * quotas (U-Manage allows 1000 requests/hour per key).
+     *
+     * 503 rather than 403 when unconfigured: the endpoint is not refusing the
+     * caller, it is not ready to serve, and that distinction is what tells an
+     * operator their cron is silently doing nothing.
+     */
     private function authorizeCron(Request $request): void
     {
         $token = (string) config('services.cron.token');
-        if ($token !== '' && !hash_equals($token, (string) $request->query('token'))) {
+
+        if ($token === '') {
+            abort(503, 'Cron endpoints are disabled until CRON_TOKEN is configured.');
+        }
+
+        // Accept the token from a header as well as the query string. Query strings
+        // are recorded verbatim in web-server access logs and browser history, so a
+        // header is the better channel where the caller can manage it.
+        $provided = (string) ($request->header('X-Cron-Token') ?: $request->query('token'));
+
+        if (!hash_equals($token, $provided)) {
             abort(403);
         }
     }
