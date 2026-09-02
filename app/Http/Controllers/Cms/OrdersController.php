@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Cms;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 use Hellotreedigital\Cms\Controllers\CmsPageController;
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\NotificationController;
 use App\Jobs\FulfillSupplierOrderJob;
 use App\Models\User;
 use App\Order;
@@ -90,6 +92,10 @@ class OrdersController extends Controller
             FulfillSupplierOrderJob::dispatch((int) $id);
         }
 
+        if ($outcome) {
+            $this->notify($outcome, (int) $id);
+        }
+
         return $redirect;
     }
 
@@ -131,6 +137,7 @@ class OrdersController extends Controller
         $unchanged = 0;
         $failures = [];
         $toFulfill = [];
+        $toNotify = [];
 
         foreach ($ids as $id) {
             $order = Order::withoutGlobalScope('cms_draft_flag')->find($id);
@@ -156,6 +163,10 @@ class OrdersController extends Controller
                     $toFulfill[] = $id;
                 }
 
+                if ($outcome) {
+                    $toNotify[] = [$outcome, $id];
+                }
+
                 $applied++;
             } catch (InsufficientCreditsException $e) {
                 // Put this one back and keep going.
@@ -170,6 +181,13 @@ class OrdersController extends Controller
         // Dispatched after every transaction has committed.
         foreach ($toFulfill as $id) {
             FulfillSupplierOrderJob::dispatch($id);
+        }
+
+        // Same rule for the customer-facing side effects: a bulk approve of N orders
+        // owes N customers a message, and it goes out through the same notify() the
+        // single-record path uses so the two cannot say different things.
+        foreach ($toNotify as [$outcome, $id]) {
+            $this->notify($outcome, $id);
         }
 
         return back()->with('success', $this->bulkSummary($applied, $unchanged, $failures));
@@ -307,6 +325,65 @@ class OrdersController extends Controller
             ]);
 
             return null;
+        }
+    }
+
+    /**
+     * Tell the customer what was decided.
+     *
+     * Runs after the transaction has committed and never throws: the decision and the
+     * credit movement are already durable, and an SMTP timeout must not be able to
+     * undo them or fail the admin's save. Same contract as
+     * Cms\CreditsController::notify().
+     *
+     * Driven by the StatusChangeOutcome — what actually happened under the row lock —
+     * not by $request->statuses_id, so a no-op save sends nothing and a bulk run sends
+     * exactly one message per order that genuinely moved.
+     *
+     * The approval mail deliberately does not quote a code. For a supplier order the
+     * code does not exist yet at this point: FulfillSupplierOrderJob is dispatched from
+     * the same commit and fills orders.code afterwards. It links to My Orders instead.
+     */
+    private function notify(StatusChangeOutcome $outcome, int $orderId): void
+    {
+        if (!in_array($outcome->to, [Order::STATUS_APPROVED, Order::STATUS_REJECTED], true)) {
+            return;
+        }
+
+        $order = Order::withoutGlobalScope('cms_draft_flag')->find($orderId);
+
+        if (!$order) {
+            return;
+        }
+
+        try {
+            NotificationController::createOrderStatusNotification(
+                $order->users_id,
+                $orderId,
+                $outcome->to,
+                $outcome->from,
+                $order->total_price
+            );
+        } catch (\Throwable $e) {
+            Log::error('Order status notification failed', ['order_id' => $orderId, 'exception' => $e]);
+        }
+
+        $user = User::find($order->users_id);
+
+        if (!$user || blank($user->email)) {
+            return;
+        }
+
+        $approved = $outcome->to === Order::STATUS_APPROVED;
+        $view = $approved ? 'emails.order-approved' : 'emails.order-rejected';
+        $subjectKey = $approved ? 'emails.subjects.order_approved' : 'emails.subjects.order_rejected';
+
+        try {
+            Mail::send($view, ['user' => $user, 'order' => $order], function ($message) use ($user, $subjectKey) {
+                $message->to($user->email)->subject(__($subjectKey));
+            });
+        } catch (\Throwable $e) {
+            Log::error('Order status email failed', ['order_id' => $orderId, 'exception' => $e]);
         }
     }
 

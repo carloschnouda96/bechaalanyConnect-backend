@@ -189,6 +189,23 @@
                                         $field['form_field'] == 'password with confirmation' ||
                                         (isset($field['hide_index']) && $field['hide_index']))
                                     @continue
+                                {{-- Receipts live on the PRIVATE disk, so Storage::url() (the vendor's
+                                     generic image branch below) mints a public/storage/receipts/ URL that
+                                     does not resolve and every receipt renders broken. Stream it through
+                                     the admin-only route instead. --}}
+                                @elseif ($field['form_field'] == 'image' && $field['name'] == 'receipt_image')
+                                    <td>
+                                        @if ($row[$field['name']])
+                                            @php
+                                                $receiptUrl = url(config('hellotree.cms_route_prefix') . '/credits-transfer/' . $row['id'] . '/receipt');
+                                            @endphp
+                                            <a href="{{ $receiptUrl }}" target="_blank" rel="noopener" title="Open full size">
+                                                <img src="{{ $receiptUrl }}" class="img-thumbnail" style="max-height:90px">
+                                            </a>
+                                        @else
+                                            <span class="text-muted">No receipt</span>
+                                        @endif
+                                    </td>
                                 @elseif ($field['form_field'] == 'image')
                                     <td>
                                         @if ($row[$field['name']])
