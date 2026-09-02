@@ -53,6 +53,37 @@ class OrderController extends Controller
     }
 
 
+    /**
+     * One order, scoped to its owner.
+     *
+     * Backs the storefront's order status page: after saveOrder() the customer was
+     * dropped on the full My Orders list with no way to watch just the order they
+     * placed, and My Orders itself only auto-refreshed every 3 minutes. This lets the
+     * page poll a single row while it is pending instead of refetching the whole list.
+     *
+     * Scoped with where('users_id', ...) rather than findOrFail() + an authorization
+     * check, so an order that exists but belongs to someone else 404s exactly like one
+     * that does not exist at all — nothing about another customer's order is revealed.
+     */
+    public function getUserOrder($locale, $id)
+    {
+        $order = Order::where('users_id', auth()->id())
+            ->where('id', $id)
+            ->with([
+                'product_variation.product',
+                // Same allow-list as getUserOrders — this response feeds the same
+                // receipt PDF, which is the only consumer of these customer fields.
+                'users:id,username,email,phone_number,country,business_location,business_name',
+            ])
+            ->first();
+
+        if (!$order) {
+            return response()->json(['message' => 'Order not found.', 'code' => 'not_found'], 404);
+        }
+
+        return response()->json($order);
+    }
+
     public function saveOrder(Request $request)
     {
         $requestedLocale = app()->getLocale();
