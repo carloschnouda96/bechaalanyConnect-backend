@@ -60,6 +60,39 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
     Route::put('/orders/bulk-status', 'App\Http\Controllers\Cms\OrdersController@bulkStatus');
     Route::put('/credits-transfer/bulk-status', 'App\Http\Controllers\Cms\CreditsController@bulkStatus');
 
+    /*
+     | Records the CMS deleted but did not remove.
+     |
+     | orders, credits_transfer and users soft-delete (2026_08_10_000009), and the vendor
+     | strips only the `cms_draft_flag` scope from its queries — never the SoftDeletingScope
+     | — so a deleted row is invisible everywhere else while still holding every RESTRICT
+     | foreign key pointed at it.
+     |
+     | PUT for restore and DELETE for purge, not POST: AdminMiddleware maps POST to the
+     | `add` permission, PUT to `edit` and DELETE to `delete`.
+     |
+     | `{type}` is matched against a hardcoded whitelist in the controller; the `where`
+     | here keeps a bad value from ever reaching it.
+     */
+    Route::get('/deleted-records', 'App\Http\Controllers\Cms\TrashController@index');
+    Route::put('/deleted-records/{type}/{id}/restore', 'App\Http\Controllers\Cms\TrashController@restore')
+        ->where('type', 'orders|credits-transfer|users')->whereNumber('id');
+    Route::delete('/deleted-records/{type}/{id}', 'App\Http\Controllers\Cms\TrashController@purge')
+        ->where('type', 'orders|credits-transfer|users')->whereNumber('id');
+
+    /*
+     | Guarded catalog deletes.
+     |
+     | Same method+URI as the vendor's generated delete routes, so the later registration
+     | replaces them (routes/web.php documents the mechanism). `{id}` is deliberately NOT
+     | whereNumber()'d: the vendor's bulk-delete JS posts a comma-separated list of ids.
+     |
+     | Without this, deleting a product or a variation that any order — including an
+     | invisible soft-deleted one — points at fails with a raw SQLSTATE 1451.
+     */
+    Route::delete('/products/{id}', 'App\Http\Controllers\Cms\CatalogDeleteController@destroyProduct');
+    Route::delete('/products-variations/{id}', 'App\Http\Controllers\Cms\CatalogDeleteController@destroyVariation');
+
     Route::put('/orders/{id}', 'App\Http\Controllers\Cms\OrdersController@update')->whereNumber('id');
     Route::put('/credits-transfer/{id}', 'App\Http\Controllers\Cms\CreditsController@update')->whereNumber('id');
     Route::put('/users/{id}', 'App\Http\Controllers\Cms\UsersController@update')->whereNumber('id');

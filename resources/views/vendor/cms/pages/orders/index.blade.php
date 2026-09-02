@@ -40,6 +40,14 @@
                 @endif
             @endif
 
+            {{-- Deleting here only marks the row deleted and hides it — the money that moved
+                 through it stays on record, and it keeps holding the foreign keys that stop a
+                 product variation from being deleted. This is where it went. --}}
+            @if (isset(request()->get('admin')['cms_pages']['deleted-records']))
+                <a href="{{ url(config('hellotree.cms_route_prefix') . '/deleted-records') }}"
+                    class="btn btn-outline-secondary btn-sm">Deleted records</a>
+            @endif
+
             {{-- Bulk approve/reject. Routes through the same credit logic as editing a
                  single order, so refunds, re-debits and supplier fulfillment all still
                  happen. --}}
