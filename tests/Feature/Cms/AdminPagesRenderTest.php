@@ -105,6 +105,39 @@ class AdminPagesRenderTest extends TestCase
             ->assertSee('fa-filter', false);
     }
 
+    /**
+     * main.js:213 select2-ifies every select on the page, at width:100% unless the
+     * element carries `select2-width-auto`. Lose that class off the bulk-status select
+     * and the widget stretches, pushing Apply out of the toolbar row. The class is the
+     * whole width fix, and nothing else in a request response can show it, so it is
+     * asserted directly. Alignment itself is CSS and is not testable from here.
+     */
+    public function test_the_bulk_status_select_stays_on_select2s_width_auto_path(): void
+    {
+        $this->actingAs($this->superAdmin(), 'admin')
+            ->get($this->url('orders'))
+            ->assertOk()
+            ->assertSee('select2-width-auto', false)
+            ->assertSee('Set selected to', false);
+    }
+
+    /**
+     * The toolbar CSS is registered from inside an @include, nested in the page's own
+     * @section('dashboard-content'). If that ever stops reaching layouts/main's
+     * @yield('styles') the row silently goes back to being misaligned, with no error.
+     */
+    public function test_the_bulk_status_toolbar_css_reaches_the_document_head(): void
+    {
+        $response = $this->actingAs($this->superAdmin(), 'admin')
+            ->get($this->url('orders'))
+            ->assertOk()
+            ->assertSee('.bulk-status .select2-container', false);
+
+        $head = substr($response->getContent(), 0, strpos($response->getContent(), '</head>'));
+
+        $this->assertStringContainsString('.bulk-status .select2-container', $head);
+    }
+
     /** @dataProvider customPages */
     public function test_a_custom_page_renders_for_a_super_admin(string $route): void
     {
