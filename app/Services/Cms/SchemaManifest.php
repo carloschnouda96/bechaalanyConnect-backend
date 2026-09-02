@@ -117,6 +117,12 @@ class SchemaManifest
                 'columns' => [
                     'source' => ['type' => 'varchar(191)', 'null' => false, 'default' => 'yassen'],
                     'import_enabled' => ['type' => 'tinyint(1)', 'null' => true, 'default' => '0'],
+                    // The DEFAULT is what matters here. The CMS strips NOT NULL from
+                    // every registered column, so an admin ticking nothing must still
+                    // mean "not grouped" — a lost default would leave NULL, and a
+                    // future non-boolean-cast read of NULL is the kind of thing that
+                    // quietly changes how a whole category imports.
+                    'group_as_single_product' => ['type' => 'tinyint(1)', 'null' => true, 'default' => '0'],
                 ],
                 'indexes' => [
                     'supplier_categories_source_external_unique' => [

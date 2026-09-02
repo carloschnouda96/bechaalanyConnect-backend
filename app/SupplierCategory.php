@@ -33,6 +33,11 @@ class SupplierCategory extends Model
     // Below the marker so a hellotree CMS page-schema save cannot rewrite it away.
     protected $casts = [
         'import_enabled' => 'boolean',
+        // "Import this category as one product with a variation per supplier row."
+        // The CMS forces every registered column NULLable regardless of the
+        // migration (CmsPagesController.php:388 — both ternary branches say
+        // 'nullable'), so this must not be read as a raw truthy value.
+        'group_as_single_product' => 'boolean',
     ];
 
     public function category()

@@ -47,6 +47,10 @@ class SchemaGuardTest extends TestCase
             'supplier_categories.image' => ['supplier_categories', 'image'],
             'supplier_categories.category_id' => ['supplier_categories', 'category_id'],
             'supplier_categories.subcategory_id' => ['supplier_categories', 'subcategory_id'],
+            // Losing this silently un-groups the category: the next sync goes back to
+            // one product per supplier row, scattering a single product's amount
+            // dropdown across the storefront as separate products again.
+            'supplier_categories.group_as_single_product' => ['supplier_categories', 'group_as_single_product'],
         ];
     }
 
