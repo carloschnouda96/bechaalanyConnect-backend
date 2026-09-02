@@ -92,16 +92,25 @@ class Product extends Model  implements TranslatableContract
     }
 
     /**
-     * Recompute every variation's selling price from its stored supplier cost
-     * (cost_price) and this product's effective profit %. Writes only when the
-     * price actually changes. Returns the number of variations updated.
+     * Recompute every SUPPLIER-SOURCED variation's selling price from its stored
+     * supplier cost (cost_price) and this product's effective profit %. Writes only
+     * when the price actually changes. Returns the number of variations updated.
+     *
+     * Scoped to variations that carry an `external_id` because a grouped supplier
+     * product (supplier_categories.group_as_single_product) can hold hand-added
+     * variations alongside the imported ones. Those are priced by an admin, often
+     * with a cost_price of their own, and editing the product's markup must not
+     * silently overwrite them.
      */
     public function recalculateSupplierPrices(): int
     {
         $pct = $this->effectiveProfitPercentage();
         $updated = 0;
 
-        $variations = $this->variations()->withoutGlobalScope('cms_draft_flag')->get();
+        $variations = $this->variations()
+            ->withoutGlobalScope('cms_draft_flag')
+            ->whereNotNull('external_id')
+            ->get();
         foreach ($variations as $variation) {
             $cost = $variation->cost_price ?? $variation->external_price;
             if ($cost === null) {

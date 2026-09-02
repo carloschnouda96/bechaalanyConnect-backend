@@ -105,7 +105,14 @@ class YassenConnector implements SupplierConnector
             'playerId' => $order->recipient_user,
         ];
 
-        $response = $this->client->newOrder($variation->product->external_id, $params);
+        // Variation id first, product id as the fallback — matching every other
+        // connector. It matters for a grouped supplier category
+        // (supplier_categories.group_as_single_product), whose shared product is
+        // keyed by a synthetic "group:…" id: only the variation knows the real
+        // Yassen product id.
+        $service = $variation->external_id ?: optional($variation->product)->external_id;
+
+        $response = $this->client->newOrder($service, $params);
 
         return new SupplierOrderResult(
             externalOrderId: (string) ($response['order_id'] ?? $response['id'] ?? '') ?: null,

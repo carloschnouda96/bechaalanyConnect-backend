@@ -3,6 +3,8 @@
 namespace Tests\Unit;
 
 use App\Order;
+use App\Product;
+use App\ProductsVariation;
 use App\Services\Suppliers\Connectors\SwiftConnector;
 use App\Services\Suppliers\Connectors\YassenConnector;
 use App\Services\Suppliers\SupplierCatalogSync;
@@ -116,6 +118,34 @@ class SupplierTest extends TestCase
 
             $this->assertSame($expected, $result->status, "Yassen status '{$supplierStatus}' should map to '{$expected}'");
         }
+    }
+
+    /**
+     * The variation's external_id is the supplier's product id; the product's is a
+     * fallback. It matters for a grouped supplier category
+     * (supplier_categories.group_as_single_product), whose shared product carries a
+     * synthetic "group:…" id that would be meaningless to Yassen.
+     */
+    public function test_yassen_orders_the_variations_external_id_not_the_products(): void
+    {
+        Http::fake(['*' => Http::response(['order_id' => '9001', 'status' => 'wait'], 200)]);
+
+        $product = new Product();
+        $product->external_source = 'yassen';
+        $product->external_id = 'group:cards';
+
+        $variation = new ProductsVariation();
+        $variation->external_id = '121';
+        $variation->setRelation('product', $product);
+
+        $order = new Order();
+        $order->quantity = 1;
+        $order->external_order_uuid = 'uuid-1';
+        $order->recipient_user = 'player-7';
+
+        (new YassenConnector(new YassenClient()))->placeOrder($order, $variation);
+
+        Http::assertSent(fn ($request) => str_contains($request->url(), '/newOrder/121/params'));
     }
 
     /**
