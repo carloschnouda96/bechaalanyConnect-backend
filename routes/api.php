@@ -157,15 +157,29 @@ Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function 
     //Get User Credits
     Route::get('/user/credits', [CreditsController::class, 'getUserCredits']);
 
-    // Get User Profile (locale-aware)
+    /*
+     | Get User Profile (locale-aware).
+     |
+     | `user_types` is loaded explicitly because this is the ONLY place the storefront
+     | learns which price tier the signed-in user is on. The product page resolves the
+     | tier price client-side from the variation's `price_variations` array, so with the
+     | relation missing it matched nothing and every user saw the default price. It used
+     | to arrive via `public $with = ['user_types.priceVariations']` on the auth model,
+     | which was removed because it ran on EVERY authenticated request (App\Models\User:68).
+     |
+     | Load `user_types` only — NOT `user_types.priceVariations`. That second level is
+     | what dragged the whole price table for every product into this response.
+     */
     Route::get('/user/profile', function (Request $request) {
+        $user = $request->user()->loadMissing('user_types');
+
         return response()->json([
-            'user' => $request->user(),
-            'orders' => $request->user()->orders,
-            'credits' => $request->user()->credits,
-            'credits_balance' => $request->user()->credits_balance,
-            'total_purchases' => $request->user()->total_purchases,
-            'received_amount' => $request->user()->received_amount,
+            'user' => $user,
+            'orders' => $user->orders,
+            'credits' => $user->credits,
+            'credits_balance' => $user->credits_balance,
+            'total_purchases' => $user->total_purchases,
+            'received_amount' => $user->received_amount,
         ]);
     });
 
