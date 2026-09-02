@@ -16,6 +16,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
 
@@ -27,6 +28,44 @@ class CreditsController extends Controller
     public function __construct(CmsPageController $cmsPageController)
     {
         $this->cmsPageController = $cmsPageController;
+    }
+
+    /**
+     * Stream a top-up receipt from the PRIVATE disk.
+     *
+     * Without this the CMS cannot show a receipt at all. Receipts moved to the private
+     * disk (they are bank/wallet screenshots carrying the customer's name, account
+     * number and transfer reference — CreditsController::transferCreditRequest), but
+     * the vendor's `image` field renders Storage::url() against the DEFAULT disk
+     * (FILESYSTEM_DISK=public). The generated URL points at public/storage/receipts/,
+     * which does not exist, so every receipt rendered as a broken image — while receipt
+     * upload is the only way credits enter the system. Exactly the problem
+     * Cms\KycController::document() solves for identity documents, and deliberately
+     * the same shape so the two cannot drift.
+     *
+     * Authorisation is the `admin` middleware on the route group: these files are not
+     * reachable without an admin session. The `public` fallback covers installations
+     * where `php artisan uploads:privatize` has not been run yet.
+     */
+    public function receipt($id)
+    {
+        $transfer = CreditsTransfer::withoutGlobalScope('cms_draft_flag')->findOrFail($id);
+
+        $path = $transfer->receipt_image;
+
+        abort_if(blank($path), 404, 'No receipt uploaded for this request.');
+
+        foreach (['private', 'public'] as $disk) {
+            if (Storage::disk($disk)->exists($path)) {
+                return Storage::disk($disk)->response($path, null, [
+                    // A payment receipt carries account details; never let an
+                    // intermediary or the browser cache retain it.
+                    'Cache-Control' => 'private, no-store, max-age=0',
+                ]);
+            }
+        }
+
+        abort(404, 'Receipt file is missing from storage.');
     }
 
     public function update(Request $request, $id)
@@ -288,15 +327,12 @@ class CreditsController extends Controller
                     $transferId,
                     $outcome->to,
                     $outcome->from,
-                    $transfer->amount
+                    $transfer->amount,
+                    $transfer->rejected_reason
                 );
             } catch (\Throwable $e) {
                 Log::error('Credit status notification failed', ['transfer_id' => $transferId, 'exception' => $e]);
             }
-        }
-
-        if ($outcome->to !== CreditsTransfer::STATUS_APPROVED || !$outcome->moneyMoved()) {
-            return;
         }
 
         $user = User::find($transfer->users_id);
@@ -305,14 +341,32 @@ class CreditsController extends Controller
             return;
         }
 
+        // Approval mails only when the money actually moved. Rejection mails on the
+        // transition itself: a rejected top-up moves nothing (the credits were never
+        // added), and until now it produced no email at all — the customer was left
+        // with a request that had silently stopped existing.
+        if ($outcome->to === CreditsTransfer::STATUS_APPROVED && $outcome->moneyMoved()) {
+            $view = 'emails.credits_approved';
+            $subjectKey = 'emails.subjects.credits_approved';
+        } elseif ($outcome->to === CreditsTransfer::STATUS_REJECTED) {
+            $view = 'emails.credits_rejected';
+            $subjectKey = 'emails.subjects.credits_rejected';
+        } else {
+            return;
+        }
+
         try {
-            Mail::send('emails.credits_approved', ['user' => $user, 'amount' => $transfer->amount], function ($message) use ($user) {
+            Mail::send($view, [
+                'user' => $user,
+                'amount' => $transfer->amount,
+                'reason' => $transfer->rejected_reason,
+            ], function ($message) use ($user, $subjectKey) {
                 $message->to($user->email);
                 // Was a hardcoded English string; the rest of the app's mail is localised.
-                $message->subject(__('emails.subjects.credits_approved'));
+                $message->subject(__($subjectKey));
             });
         } catch (\Throwable $e) {
-            Log::error('Credits approved email failed', ['transfer_id' => $transferId, 'exception' => $e]);
+            Log::error('Credits status email failed', ['transfer_id' => $transferId, 'exception' => $e]);
         }
     }
 }

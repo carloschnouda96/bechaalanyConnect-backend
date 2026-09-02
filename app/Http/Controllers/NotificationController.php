@@ -59,11 +59,33 @@ class NotificationController extends Controller
          */
     }
 
+    /**
+     * A notification's payload as an array, however it happens to be stored.
+     *
+     * `user_notifications.data` is cast to array on the model, but the older factories
+     * hand create() a json_encode()d string, which the cast then encodes again — so
+     * historical rows read back as a JSON string while correctly-written ones read back
+     * as an array. Callers assuming one broke on the other: a bare
+     * json_decode($notification->data, true) is a TypeError under PHP 8 the moment the
+     * value is a real array, and /user/notifications/poll and
+     * /user/notifications/credits both did exactly that over EVERY notification a user
+     * has — so one correctly-stored row would have 500'd both endpoints.
+     */
+    private static function dataOf(UserNotification $notification): array
+    {
+        $data = $notification->data;
+
+        if (is_array($data)) {
+            return $data;
+        }
+
+        return json_decode((string) $data, true) ?: [];
+    }
+
     /** Shape a notification for the API. */
     private function present(UserNotification $notification): array
     {
-        // `data` is cast to array on the model now that the column is real JSON.
-        $data = is_array($notification->data) ? $notification->data : (json_decode((string) $notification->data, true) ?: []);
+        $data = self::dataOf($notification);
 
         return [
             'id' => $notification->id,
@@ -288,20 +310,30 @@ class NotificationController extends Controller
      * Create a credit status change notification
      * Call this from your CreditsController after updating status
      */
-    public static function createCreditNotification($userId, $creditsTransferId, $newStatus, $previousStatus, $amount)
+    public static function createCreditNotification($userId, $creditsTransferId, $newStatus, $previousStatus, $amount, $reason = null)
     {
         $message = self::generateStatusMessage($newStatus, $amount);
+
+        // credits_transfer.rejected_reason has been collected and editable in the CMS
+        // all along and reached the customer nowhere — they were told to "contact
+        // support" while the answer was already stored against their row.
+        if (filled($reason)) {
+            $message .= ' Reason: ' . $reason;
+        }
 
         UserNotification::create([
             'users_id' => $userId,
             'statuses_id' => $newStatus,
-            'data' => json_encode([
+            // Array, not json_encode(): `data` is cast to array on the model, so
+            // encoding here stored a double-encoded string that read back as a string.
+            'data' => [
                 'credits_transfer_id' => $creditsTransferId,
                 'new_status' => $newStatus,
                 'previous_status' => $previousStatus,
                 'amount' => $amount,
+                'reason' => $reason,
                 'message' => $message,
-            ]),
+            ],
             'read_at' => null,
         ]);
     }
@@ -319,13 +351,15 @@ class NotificationController extends Controller
         UserNotification::create([
             'users_id' => $userId,
             'statuses_id' => null,
-            'data' => json_encode([
+            // Array, not json_encode(): `data` is cast to array on the model, so
+            // encoding here stored a double-encoded string that read back as a string.
+            'data' => [
                 'type' => 'kyc',
                 'new_status' => null,
                 'kyc_status' => $newStatus,
                 'previous_kyc_status' => $previousStatus,
                 'message' => $message,
-            ]),
+            ],
             'read_at' => null,
         ]);
     }
@@ -342,13 +376,58 @@ class NotificationController extends Controller
         UserNotification::create([
             'users_id' => $userId,
             'statuses_id' => \App\Order::STATUS_REJECTED,
-            'data' => json_encode([
+            // The `type` COLUMN is what present() and scopeOfType() read; data.type is
+            // not consulted. Without it this notification presented as 'general'.
+            'type' => 'order_cancelled',
+            // Array, not json_encode(): `data` is cast to array on the model, so
+            // encoding here stored a double-encoded string that read back as a string.
+            'data' => [
                 'type' => 'order_cancelled',
                 'order_id' => $orderId,
                 'amount' => $amount,
                 'reason' => $reason,
                 'message' => $message,
-            ]),
+            ],
+            'read_at' => null,
+        ]);
+    }
+
+    /**
+     * An admin decided an order.
+     *
+     * Nothing told a customer their order had been approved or rejected. They had
+     * already been debited at placement, so from their side an approved order was
+     * indistinguishable from one nobody had looked at — the only way to find out was to
+     * sit on the My Orders page, which refreshes every three minutes. Reviewing every
+     * order by hand is deliberate here, which makes telling the customer the decision
+     * part of the job, not a nicety.
+     *
+     * Separate from createOrderNotification() above, which is the supplier's
+     * auto-cancellation and says something different.
+     */
+    public static function createOrderStatusNotification($userId, $orderId, $newStatus, $previousStatus, $amount = null)
+    {
+        $approved = (int) $newStatus === \App\Order::STATUS_APPROVED;
+
+        $message = $approved
+            ? 'Your order has been approved. Open My Orders to see your code or delivery details.'
+            : 'Your order was rejected and the credits have been returned to your balance.';
+
+        UserNotification::create([
+            'users_id' => $userId,
+            'statuses_id' => $newStatus,
+            'type' => $approved ? 'order_approved' : 'order_rejected',
+            // Passed as an array, not json_encode()d: `data` is cast to array on the
+            // model, so encoding here would store a double-encoded string and every
+            // read would hand callers a string back.
+            'data' => [
+                'type' => $approved ? 'order_approved' : 'order_rejected',
+                'order_id' => $orderId,
+                'new_status' => $newStatus,
+                'previous_status' => $previousStatus,
+                'amount' => $amount,
+                'message' => $message,
+            ],
             'read_at' => null,
         ]);
     }
@@ -407,7 +486,7 @@ class NotificationController extends Controller
         $allNotifications = [];
 
         foreach ($notifications as $notification) {
-            $data = json_decode($notification->data, true);
+            $data = self::dataOf($notification);
 
             $allNotifications[] = [
                 'id' => $notification->id,
@@ -443,7 +522,7 @@ class NotificationController extends Controller
             ->orderBy('created_at', 'desc')
             ->get()
             ->filter(function ($notification) {
-                $data = json_decode($notification->data, true);
+                $data = self::dataOf($notification);
                 // Only return notifications that have credits_transfer_id (credit-related)
                 return isset($data['credits_transfer_id']) && !empty($data['credits_transfer_id']);
             });
@@ -455,7 +534,7 @@ class NotificationController extends Controller
         $creditNotifications = [];
 
         foreach ($notifications as $notification) {
-            $data = json_decode($notification->data, true);
+            $data = self::dataOf($notification);
 
             $creditNotifications[] = [
                 'id' => $notification->id,

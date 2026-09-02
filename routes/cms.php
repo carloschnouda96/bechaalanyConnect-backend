@@ -93,6 +93,35 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
     Route::delete('/products/{id}', 'App\Http\Controllers\Cms\CatalogDeleteController@destroyProduct');
     Route::delete('/products-variations/{id}', 'App\Http\Controllers\Cms\CatalogDeleteController@destroyVariation');
 
+    /*
+     | Bulk catalog editing: export to CSV, edit in a spreadsheet, upload, review, apply.
+     |
+     | POST (not PUT) for both write steps: AdminMiddleware maps POST to the `add`
+     | permission, and an import can create products, so `add` is the honest right to
+     | require. `/preview` is registered before the bare POST so the two do not overlap.
+     */
+    Route::get('/catalog-pricing', 'App\Http\Controllers\Cms\CatalogPricingController@index');
+    // PUT so AdminMiddleware maps it to `edit`: repricing changes existing records.
+    Route::put('/catalog-pricing', 'App\Http\Controllers\Cms\CatalogPricingController@update');
+
+    Route::get('/catalog-import', 'App\Http\Controllers\Cms\CatalogImportController@index');
+    Route::get('/catalog-import/export', 'App\Http\Controllers\Cms\CatalogImportController@export');
+    Route::post('/catalog-import/preview', 'App\Http\Controllers\Cms\CatalogImportController@preview');
+    Route::post('/catalog-import', 'App\Http\Controllers\Cms\CatalogImportController@commit');
+
+    /*
+     | Streams a top-up receipt off the private disk.
+     |
+     | The same fix, for the same reason, as /kyc-queue/{id}/document/{slot} above: the
+     | vendor's `image` field calls Storage::url() on the default (public) disk and
+     | cannot reach a private file, so without this route every receipt in the CMS is a
+     | broken image — on the only screen where a top-up is approved.
+     |
+     | Three segments, so it cannot collide with the vendor's GET /credits-transfer/{id}.
+     */
+    Route::get('/credits-transfer/{id}/receipt', 'App\Http\Controllers\Cms\CreditsController@receipt')
+        ->whereNumber('id');
+
     Route::put('/orders/{id}', 'App\Http\Controllers\Cms\OrdersController@update')->whereNumber('id');
     Route::put('/credits-transfer/{id}', 'App\Http\Controllers\Cms\CreditsController@update')->whereNumber('id');
     Route::put('/users/{id}', 'App\Http\Controllers\Cms\UsersController@update')->whereNumber('id');
