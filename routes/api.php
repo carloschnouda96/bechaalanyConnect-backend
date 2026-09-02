@@ -154,6 +154,10 @@ Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function 
     //Get User Orders
     Route::get('/user/orders', [OrderController::class, 'getUserOrders']);
 
+    // One order, scoped to its owner (404, not 403, if it isn't theirs — see
+    // OrderController::getUserOrder). Backs the order status page's poll-while-pending.
+    Route::get('/user/orders/{id}', [OrderController::class, 'getUserOrder'])->whereNumber('id');
+
     //Get User Credits
     Route::get('/user/credits', [CreditsController::class, 'getUserCredits']);
 
