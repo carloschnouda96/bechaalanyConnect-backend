@@ -27,12 +27,6 @@ class RegisteredUserController extends Controller
 
     public function store(Request $request)
     {
-        // Ensure locale is set for this request if passed (query/header) for email language
-        $requestedLocale = $request->get('lang') ?? $request->getPreferredLanguage(['en', 'ar']);
-        if (in_array($requestedLocale, ['en', 'ar'])) {
-            app()->setLocale($requestedLocale);
-        }
-
         // dd($request);
         $email_confirmation_token = bin2hex(random_bytes(16));
         //generate random verification code integer 6 digits for email verification
@@ -87,12 +81,12 @@ class RegisteredUserController extends Controller
             Log::error('Verification email sending failed', ['exception' => $e]);
 
             return response()->json([
-                'message' => 'Your account was created, but the verification email could not be sent. Please use "resend code".',
+                'message' => __('api.auth.registered_no_email'),
                 'code' => 'verification_email_failed',
             ], 500);
         }
         return response()->json([
-            'message' => 'Registration successful. Please verify your email.',
+            'message' => __('api.auth.registered'),
             'verification_token' => $email_confirmation_token
         ], 201);
     }
@@ -123,7 +117,7 @@ class RegisteredUserController extends Controller
         $attemptKey = 'verify-email:attempts:' . sha1($email);
         if (Cache::get($attemptKey, 0) >= self::MAX_VERIFICATION_ATTEMPTS) {
             return response()->json([
-                'message' => 'Too many incorrect codes. Request a new one.',
+                'message' => __('api.auth.too_many_codes'),
                 'code' => 'verification_locked',
             ], 429);
         }
@@ -143,7 +137,7 @@ class RegisteredUserController extends Controller
             // Deliberately identical whether the email is unknown, the token is wrong
             // or the code is wrong — otherwise this endpoint reports which accounts exist.
             return response()->json([
-                'message' => 'Email verification failed. Check the code and try again.',
+                'message' => __('api.auth.verification_failed'),
                 'code' => 'verification_failed',
             ], 400);
         }
@@ -160,7 +154,7 @@ class RegisteredUserController extends Controller
         $token = $user->createToken('api-token')->plainTextToken;
 
         return response()->json([
-            'message' => 'Email verified successfully.',
+            'message' => __('api.auth.email_verified'),
             'token' => $token,
             'user' => $user,
         ], 200);
@@ -185,10 +179,6 @@ class RegisteredUserController extends Controller
 
     public function verifyEmailSendNewCode(Request $request)
     {
-        $requestedLocale = $request->get('lang') ?? $request->getPreferredLanguage(['en', 'ar']);
-        if (in_array($requestedLocale, ['en', 'ar'])) {
-            app()->setLocale($requestedLocale);
-        }
         $request->validate([
             'email' => ['required', 'email', 'max:255']
         ]);
@@ -204,7 +194,7 @@ class RegisteredUserController extends Controller
         // mid-verification. The refusal to reissue also left users stuck: if the
         // first email never arrived, there was no way to get another.
         $genericResponse = response()->json([
-            'message' => 'If that email needs verification, a new code is on its way.',
+            'message' => __('api.auth.code_resent'),
         ], 200);
 
         if (!$user || $user->email_verified) {
@@ -252,10 +242,6 @@ class RegisteredUserController extends Controller
     public function forgotPasswordSendEmail()
     {
         $request = request();
-        $requestedLocale = $request->get('lang') ?? $request->getPreferredLanguage(['en', 'ar']);
-        if (in_array($requestedLocale, ['en', 'ar'])) {
-            app()->setLocale($requestedLocale);
-        }
 
         $attributes = $request->validate([
             'email' => ['required', 'email', 'max:255']
@@ -270,7 +256,7 @@ class RegisteredUserController extends Controller
         // a list of emails and it tells you which ones have accounts here. Those
         // accounts hold credit balances, so that list has direct value to an attacker.
         $genericResponse = response()->json([
-            'message' => 'If that email is registered, a reset link is on its way.',
+            'message' => __('api.auth.reset_link_sent'),
         ], 200);
 
         if (!$user) {
@@ -317,10 +303,6 @@ class RegisteredUserController extends Controller
     public function resetPasswordSendEmail()
     {
         $request = request();
-        $requestedLocale = $request->get('lang') ?? $request->getPreferredLanguage(['en', 'ar']);
-        if (in_array($requestedLocale, ['en', 'ar'])) {
-            app()->setLocale($requestedLocale);
-        }
         $attributes = $request->validate([
             'email' => ['required', 'email', 'max:255'],
             'token' => ['required', 'string', 'max:191'],
@@ -343,7 +325,7 @@ class RegisteredUserController extends Controller
 
         if (!$tokenMatches || !$notExpired) {
             return response()->json([
-                'message' => 'This password reset link is invalid or has expired. Please request a new one.',
+                'message' => __('api.auth.reset_link_invalid'),
                 'code' => 'reset_token_invalid',
             ], 400);
         }
@@ -372,6 +354,6 @@ class RegisteredUserController extends Controller
             Log::error('Password-changed notification failed', ['exception' => $e]);
         }
 
-        return response()->json(['message' => 'Password reset successfully.', 'token' => $token, 'user' => $user], 200);
+        return response()->json(['message' => __('api.auth.password_reset'), 'token' => $token, 'user' => $user], 200);
     }
 }

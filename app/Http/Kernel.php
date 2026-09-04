@@ -68,7 +68,10 @@ class Kernel extends HttpKernel
         'signed' => \App\Http\Middleware\ValidateSignature::class,
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
+        // Strict: reads the {locale} URL segment, 404s on an unknown one.
         'locale' => \App\Http\Middleware\LocaleMiddleware::class,
+        // Lenient: for routes with no {locale} segment — reads ?lang / Accept-Language.
+        'locale.header' => \App\Http\Middleware\ResolveRequestLocale::class,
 
 
     ];

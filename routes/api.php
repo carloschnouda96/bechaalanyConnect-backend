@@ -50,21 +50,21 @@ use App\Http\Controllers\NotificationController;
 // Exchanges a verified Google ID token for a Sanctum token. Throttled as an auth
 // endpoint: it is unauthenticated and can create accounts.
 Route::post('/auth/google-sync', [SocialiteController::class, 'syncUser'])
-    ->middleware('throttle:auth');
+    ->middleware(['throttle:auth', 'locale.header']);
 
 //Register Routes
 Route::post('/register', [RegisteredUserController::class, 'store'])
-    ->middleware('throttle:auth');
+    ->middleware(['throttle:auth', 'locale.header']);
 
 //Email Verification Routes
 Route::post('/verify-email', [RegisteredUserController::class, 'verifyEmail'])
-    ->middleware('throttle:auth');
+    ->middleware(['throttle:auth', 'locale.header']);
 Route::post('/resend-verification-code', [RegisteredUserController::class, 'verifyEmailSendNewCode'])
-    ->middleware('throttle:auth');
+    ->middleware(['throttle:auth', 'locale.header']);
 
 //Contact Form Routes
 Route::post('/contact-form-submit', [ContactController::class, 'submit'])
-    ->middleware('throttle:contact');
+    ->middleware(['throttle:contact', 'locale.header']);
 
 // Cron entrypoints for the URL-based production scheduler (hit by wget from the
 // host cron panel). Run every enabled supplier in-process. Optionally guarded by
@@ -99,8 +99,13 @@ Route::get('/cron/queue/work', [CronController::class, 'queueWork'])
 Route::get('/cron/credits/reconcile', [CronController::class, 'reconcileCredits'])
     ->middleware('throttle:cron');
 
-// Authenticated user routes
-Route::middleware('auth:sanctum')->group(function () {
+// Authenticated user routes.
+//
+// `locale.header` is what makes these answer in the caller's language: none of them
+// carry a {locale} segment, so LocaleMiddleware never runs and every response
+// message here used to be English. The frontend sends Accept-Language on every
+// request (src/utils/api.ts).
+Route::middleware(['auth:sanctum', 'locale.header'])->group(function () {
 
     Route::get('/user', function (Request $request) {
         return $request->user();

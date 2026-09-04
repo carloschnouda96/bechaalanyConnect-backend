@@ -30,10 +30,6 @@ class ContactController extends Controller
 
     public function submit(Request $request)
     {
-        $requestedLocale = $request->get('lang') ?? $request->getPreferredLanguage(['en', 'ar']);
-        if (in_array($requestedLocale, ['en', 'ar'])) {
-            app()->setLocale($requestedLocale);
-        }
         // Null-safe: was FixedSetting::first()->admin_email, which fataled when the
         // settings row was missing or draft-flagged.
         $admin_email = FixedSetting::adminEmail();
@@ -59,7 +55,7 @@ class ContactController extends Controller
         });
 
         return response()->json([
-            'message' => 'Contact form submitted successfully'
+            'message' => __('api.contact.submitted')
         ]);
     }
 }

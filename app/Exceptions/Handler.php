@@ -129,7 +129,7 @@ class Handler extends ExceptionHandler
                 ], Response::HTTP_UNAUTHORIZED),
 
                 $e instanceof AuthorizationException => response()->json([
-                    'message' => $e->getMessage() ?: 'This action is unauthorized.',
+                    'message' => $e->getMessage() ?: __('api.errors.forbidden'),
                     'code' => 'forbidden',
                 ], Response::HTTP_FORBIDDEN),
 
@@ -137,19 +137,19 @@ class Handler extends ExceptionHandler
                 // previously surfaced as a raw framework 404 page.
                 $e instanceof ModelNotFoundException,
                 $e instanceof NotFoundHttpException => response()->json([
-                    'message' => 'The requested resource was not found.',
+                    'message' => __('api.errors.not_found'),
                     'code' => 'not_found',
                 ], Response::HTTP_NOT_FOUND),
 
                 $e instanceof TooManyRequestsHttpException => response()->json([
-                    'message' => 'Too many attempts. Please wait a moment and try again.',
+                    'message' => __('api.errors.rate_limited'),
                     'code' => 'rate_limited',
                 ], Response::HTTP_TOO_MANY_REQUESTS),
 
                 // abort(403) / abort(503, '…') and friends. The message on these is
                 // author-written, so it is safe to pass through.
                 $e instanceof HttpExceptionInterface => response()->json([
-                    'message' => $e->getMessage() ?: 'Request failed.',
+                    'message' => $e->getMessage() ?: __('api.errors.http_error'),
                     'code' => 'http_error',
                 ], $e->getStatusCode()),
 
@@ -176,7 +176,7 @@ class Handler extends ExceptionHandler
         ]);
 
         $payload = [
-            'message' => 'Something went wrong on our side. Please try again.',
+            'message' => __('api.errors.unexpected'),
             'code' => 'server_error',
             'ref' => $ref,
         ];
