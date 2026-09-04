@@ -61,7 +61,7 @@ class CreditsController extends Controller
         $user = $request->user();
 
         if ($user->verification_status !== 'approved') {
-            return response()->json(['message' => 'Your account must be verified before requesting credits.'], 403);
+            return response()->json(['message' => __('api.credits.kyc_required')], 403);
         }
 
         // Validate the request data
@@ -99,7 +99,7 @@ class CreditsController extends Controller
         }
 
         return response()->json([
-            'message' => 'Transfer credit request submitted successfully.',
+            'message' => __('api.credits.request_submitted'),
             'transfer_request' => $transferRequest,
         ]);
     }
@@ -119,7 +119,7 @@ class CreditsController extends Controller
         $transfer = CreditsTransfer::find($id);
 
         if (!$transfer || blank($transfer->receipt_image)) {
-            return response()->json(['message' => 'Receipt not found.', 'code' => 'not_found'], 404);
+            return response()->json(['message' => __('api.credits.receipt_not_found'), 'code' => 'not_found'], 404);
         }
 
         foreach (['private', 'public'] as $disk) {
@@ -134,6 +134,6 @@ class CreditsController extends Controller
             }
         }
 
-        return response()->json(['message' => 'Receipt not found.', 'code' => 'not_found'], 404);
+        return response()->json(['message' => __('api.credits.receipt_not_found'), 'code' => 'not_found'], 404);
     }
 }

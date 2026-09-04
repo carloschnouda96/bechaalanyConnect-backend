@@ -20,7 +20,7 @@ class NotificationController extends Controller
     {
         $user = Auth::user();
         if (!$user) {
-            return response()->json(['error' => 'Unauthorized'], 401);
+            return response()->json(['error' => __('api.unauthorized')], 401);
         }
 
         $perPage = min((int) $request->get('limit', 20), 50);
@@ -82,6 +82,180 @@ class NotificationController extends Controller
         return json_decode((string) $data, true) ?: [];
     }
 
+    /**
+     * The notification's sentence, in the language of the current request.
+     *
+     * This used to be a bare `$data['message']` — the English string the factory below
+     * rendered at WRITE time. Because it was frozen at creation, an Arabic customer read
+     * English, and switching language on the storefront could never change it however
+     * many times the page refetched.
+     *
+     * Rows written from now on carry `message_key` + `message_params` and are translated
+     * here under the locale LocaleMiddleware set from the {locale} route segment. Rows
+     * written before that (every live notification at the time this shipped) have no
+     * key, but the rest of the payload is enough to reconstruct one — status, type,
+     * kyc_status — so they translate too. The stored English `message` is only the
+     * fallback when nothing can be inferred, or when the key has since been removed
+     * from the lang files.
+     */
+    private static function resolveMessage(array $data, ?string $columnType = null): ?string
+    {
+        $key = self::messageKeyOf($data, $columnType);
+
+        if (!$key) {
+            return $data['message'] ?? null;
+        }
+
+        // A missing key makes trans() hand the key itself back. Rather than showing the
+        // customer "notifications.credit_approved", fall back to the stored sentence.
+        if (!\Illuminate\Support\Facades\Lang::has($key)) {
+            return $data['message'] ?? null;
+        }
+
+        return self::composeMessage($key, self::messageParamsOf($data, $key));
+    }
+
+    /**
+     * Which notifications.* line this payload is. Prefer the key written at create
+     * time; otherwise reconstruct it from the same fields the factories have always
+     * stored (type, kyc_status, order_id, new_status) so pre-key rows translate.
+     */
+    private static function messageKeyOf(array $data, ?string $columnType = null): ?string
+    {
+        if (!empty($data['message_key'])) {
+            return $data['message_key'];
+        }
+
+        foreach ([$data['type'] ?? null, $columnType] as $type) {
+            $fromType = self::keyForStoredType($type);
+            if ($fromType) {
+                return $fromType;
+            }
+        }
+
+        if (isset($data['kyc_status'])) {
+            $status = (int) $data['kyc_status'];
+            if ($status === \App\Models\User::VERIFICATION_APPROVED) {
+                return 'notifications.kyc_approved';
+            }
+            if ($status === \App\Models\User::VERIFICATION_REJECTED) {
+                return 'notifications.kyc_rejected';
+            }
+        }
+
+        if (array_key_exists('order_id', $data) && $data['order_id'] !== null) {
+            $status = (int) ($data['new_status'] ?? 0);
+            if ($status === \App\Order::STATUS_APPROVED) {
+                return 'notifications.order_approved';
+            }
+            if ($status === \App\Order::STATUS_REJECTED) {
+                return 'notifications.order_rejected';
+            }
+
+            return 'notifications.order_cancelled';
+        }
+
+        if (isset($data['credits_transfer_id']) || isset($data['new_status'])) {
+            return self::creditMessageKey($data['new_status'] ?? null);
+        }
+
+        return null;
+    }
+
+    /**
+     * Map a stored `type` (column or data.type) onto a lang key.
+     *
+     * Includes the leftover labels from `2026_08_10_000010`'s backfill (`approved` /
+     * `rejected` / `pending` / `kyc` / `general`) so those rows still resolve. `kyc`
+     * and `general` are too vague to pick a line on their own — the caller continues
+     * to kyc_status / new_status for those.
+     */
+    private static function keyForStoredType(?string $type): ?string
+    {
+        return match ($type) {
+            'credit_approved', 'approved' => 'notifications.credit_approved',
+            'credit_rejected', 'rejected' => 'notifications.credit_rejected',
+            'credit_pending', 'pending' => 'notifications.credit_pending',
+            'order_approved' => 'notifications.order_approved',
+            'order_rejected' => 'notifications.order_rejected',
+            'order_cancelled' => 'notifications.order_cancelled',
+            'kyc_approved' => 'notifications.kyc_approved',
+            'kyc_rejected' => 'notifications.kyc_rejected',
+            default => null,
+        };
+    }
+
+    private static function messageParamsOf(array $data, string $key): array
+    {
+        $params = $data['message_params'] ?? [];
+
+        if (!array_key_exists('amount', $params) && isset($data['amount'])) {
+            $params['amount'] = $data['amount'];
+        }
+
+        // Only credit rejections have ever appended the admin reason onto the
+        // sentence. Order-cancelled stores a machine reason (`supplier_cancelled`)
+        // that was never part of the customer-facing line.
+        if (
+            $key === 'notifications.credit_rejected'
+            && !array_key_exists('reason', $params)
+            && filled($data['reason'] ?? null)
+        ) {
+            $params['reason'] = $data['reason'];
+        }
+
+        return $params;
+    }
+
+    /**
+     * The storefront's visual type. Prefer a type we can derive from the message key
+     * so a credit row whose column was backfilled to 'general' (or a KYC row stuck
+     * on 'kyc') still renders as an approval/rejection rather than the generic
+     * fallback.
+     */
+    private static function presentType(array $data, ?string $columnType): string
+    {
+        $key = self::messageKeyOf($data, $columnType);
+
+        if ($key && str_starts_with($key, 'notifications.')) {
+            $fromKey = substr($key, strlen('notifications.'));
+            $known = [
+                'credit_approved', 'credit_rejected', 'credit_pending', 'credit_default',
+                'order_approved', 'order_rejected', 'order_cancelled',
+                'kyc_approved', 'kyc_rejected',
+            ];
+            if (in_array($fromKey, $known, true)) {
+                return $fromKey;
+            }
+        }
+
+        return $columnType ?: 'general';
+    }
+
+    /**
+     * One line, fully assembled: the translated sentence plus, when an admin typed one,
+     * the reason appended behind a translated label.
+     *
+     * Shared by the read path (resolveMessage, current locale) and the write path
+     * (renderDefault, app default locale) so the audit copy stored in data['message']
+     * says the same thing the customer is served — including the reason, which
+     * credits_transfer.rejected_reason has always held and which used to be the only
+     * way a customer learned why a top-up was refused.
+     */
+    private static function composeMessage(string $key, array $params, ?string $locale = null): string
+    {
+        $message = trans($key, $params, $locale);
+
+        // The admin's free-text reason is in whatever language they typed it in; only
+        // the label around it is translated.
+        $reason = $params['reason'] ?? null;
+        if (filled($reason)) {
+            $message .= trans('notifications.reason_suffix', ['reason' => $reason], $locale);
+        }
+
+        return $message;
+    }
+
     /** Shape a notification for the API. */
     private function present(UserNotification $notification): array
     {
@@ -89,12 +263,11 @@ class NotificationController extends Controller
 
         return [
             'id' => $notification->id,
-            'type' => $notification->type
-                ?: (isset($data['new_status']) ? $this->mapStatusToNotificationType($data['new_status']) : 'general'),
+            'type' => self::presentType($data, $notification->type),
             'request_id' => $data['credits_transfer_id'] ?? null,
             'order_id' => $data['order_id'] ?? null,
             'amount' => $data['amount'] ?? null,
-            'message' => $data['message'] ?? null,
+            'message' => self::resolveMessage($data, $notification->type),
             'created_at' => $notification->created_at,
             'read_at' => $notification->read_at,
         ];
@@ -111,7 +284,7 @@ class NotificationController extends Controller
         $user = Auth::user();
 
         if (!$user) {
-            return response()->json(['message' => 'Unauthenticated.', 'code' => 'unauthenticated'], 401);
+            return response()->json(['message' => __('auth.unauthenticated'), 'code' => 'unauthenticated'], 401);
         }
 
         $notification = UserNotification::where('id', $id)
@@ -119,7 +292,7 @@ class NotificationController extends Controller
             ->first();
 
         if (!$notification) {
-            return response()->json(['message' => 'Notification not found.', 'code' => 'not_found'], 404);
+            return response()->json(['message' => __('api.notifications.not_found'), 'code' => 'not_found'], 404);
         }
 
         if ($notification->read_at === null) {
@@ -127,7 +300,7 @@ class NotificationController extends Controller
         }
 
         return response()->json([
-            'message' => 'Notification marked as read.',
+            'message' => __('api.notifications.marked_read'),
             'unread_count' => UserNotification::where('users_id', $user->id)->unread()->count(),
         ]);
     }
@@ -138,7 +311,7 @@ class NotificationController extends Controller
         $user = Auth::user();
 
         if (!$user) {
-            return response()->json(['message' => 'Unauthenticated.', 'code' => 'unauthenticated'], 401);
+            return response()->json(['message' => __('auth.unauthenticated'), 'code' => 'unauthenticated'], 401);
         }
 
         $updated = UserNotification::where('users_id', $user->id)
@@ -146,7 +319,7 @@ class NotificationController extends Controller
             ->update(['read_at' => now()]);
 
         return response()->json([
-            'message' => 'All notifications marked as read.',
+            'message' => __('api.notifications.all_marked_read'),
             'updated' => $updated,
             'unread_count' => 0,
         ]);
@@ -156,7 +329,7 @@ class NotificationController extends Controller
     {
         $user = Auth::user();
         if (!$user) {
-            return response()->json(['error' => 'Unauthorized'], 401);
+            return response()->json(['error' => __('api.unauthorized')], 401);
         }
 
         try {
@@ -166,19 +339,19 @@ class NotificationController extends Controller
                 ->first();
 
             if (!$notification) {
-                return response()->json(['error' => 'Notification not found'], 404);
+                return response()->json(['error' => __('api.notifications.not_found')], 404);
             }
 
             // Delete the notification
             $notification->delete();
 
             return response()->json([
-                'message' => 'Notification deleted successfully',
+                'message' => __('api.notifications.deleted'),
                 'deleted_id' => $id
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to delete notification',
+                'error' => __('api.notifications.delete_failed'),
                 'message' => $e->getMessage()
             ], 500);
         }
@@ -191,7 +364,7 @@ class NotificationController extends Controller
     {
         $user = Auth::user();
         if (!$user) {
-            return response()->json(['error' => 'Unauthorized'], 401);
+            return response()->json(['error' => __('api.unauthorized')], 401);
         }
 
         try {
@@ -204,7 +377,7 @@ class NotificationController extends Controller
 
             if ($deletedCount === 0) {
                 return response()->json([
-                    'message' => 'No read notifications found',
+                    'message' => __('api.notifications.no_read_found'),
                     'deleted_count' => 0
                 ], 200);
             }
@@ -215,12 +388,12 @@ class NotificationController extends Controller
                 ->delete();
 
             return response()->json([
-                'message' => 'All read notifications deleted successfully',
+                'message' => __('api.notifications.all_read_deleted'),
                 'deleted_count' => $deletedCount
             ], 200);
         } catch (\Exception $e) {
             return response()->json([
-                'error' => 'Failed to delete read notifications',
+                'error' => __('api.notifications.delete_read_failed'),
                 'message' => $e->getMessage()
             ], 500);
         }
@@ -231,7 +404,7 @@ class NotificationController extends Controller
     // {
     //     $user = Auth::user();
     //     if (!$user) {
-    //         return response()->json(['error' => 'Unauthorized'], 401);
+    //         return response()->json(['error' => __('api.unauthorized')], 401);
     //     }
 
     //     // Use database transaction to prevent race conditions
@@ -286,7 +459,7 @@ class NotificationController extends Controller
     {
         $user = Auth::user();
         if (!$user) {
-            return response()->json(['error' => 'Unauthorized'], 401);
+            return response()->json(['error' => __('api.unauthorized')], 401);
         }
 
         $notification = UserNotification::where('id', $notificationId)
@@ -294,7 +467,7 @@ class NotificationController extends Controller
             ->first();
 
         if (!$notification) {
-            return response()->json(['error' => 'Notification not found'], 404);
+            return response()->json(['error' => __('api.notifications.not_found')], 404);
         }
 
         // Mark as read if not already
@@ -303,7 +476,7 @@ class NotificationController extends Controller
             $notification->save();
         }
 
-        return response()->json(['message' => 'Notification acknowledged']);
+        return response()->json(['message' => __('api.notifications.acknowledged')]);
     }
 
     /**
@@ -312,18 +485,24 @@ class NotificationController extends Controller
      */
     public static function createCreditNotification($userId, $creditsTransferId, $newStatus, $previousStatus, $amount, $reason = null)
     {
-        $message = self::generateStatusMessage($newStatus, $amount);
+        $key = self::creditMessageKey($newStatus);
+        $params = ['amount' => $amount];
 
         // credits_transfer.rejected_reason has been collected and editable in the CMS
         // all along and reached the customer nowhere — they were told to "contact
         // support" while the answer was already stored against their row.
         if (filled($reason)) {
-            $message .= ' Reason: ' . $reason;
+            $params['reason'] = $reason;
         }
 
         UserNotification::create([
             'users_id' => $userId,
             'statuses_id' => $newStatus,
+            // The `type` COLUMN is what present() and scopeOfType() read. Without it
+            // the CMS backfill stored 'general' on credit rows (JSON new_status was a
+            // string, so the CASE missed it) and the storefront could not tell an
+            // approval from a generic ping.
+            'type' => str_replace('notifications.', '', $key),
             // Array, not json_encode(): `data` is cast to array on the model, so
             // encoding here stored a double-encoded string that read back as a string.
             'data' => [
@@ -332,7 +511,13 @@ class NotificationController extends Controller
                 'previous_status' => $previousStatus,
                 'amount' => $amount,
                 'reason' => $reason,
-                'message' => $message,
+                'message_key' => $key,
+                'message_params' => $params,
+                // Rendered in the app default locale. Not what the API serves any more
+                // (resolveMessage() re-renders from the key per request), but kept as
+                // the audit trail of what was said, and as the fallback if the key is
+                // ever removed from the lang files.
+                'message' => self::renderDefault($key, $params),
             ],
             'read_at' => null,
         ]);
@@ -344,21 +529,27 @@ class NotificationController extends Controller
      */
     public static function createKycNotification($userId, $newStatus, $previousStatus)
     {
-        $message = $newStatus == \App\Models\User::VERIFICATION_APPROVED
-            ? 'Your account has been verified. You can now use all platform features.'
-            : 'Your verification documents were rejected. Please resubmit your documents.';
+        $approved = $newStatus == \App\Models\User::VERIFICATION_APPROVED;
+        $key = $approved ? 'notifications.kyc_approved' : 'notifications.kyc_rejected';
 
         UserNotification::create([
             'users_id' => $userId,
             'statuses_id' => null,
+            // The `type` COLUMN is what present() and scopeOfType() read; data.type is
+            // not consulted. Without it every KYC notification presented as 'general',
+            // and the storefront could not tell an approval from a rejection — it showed
+            // both with the neutral 'Verification Update' title and a success icon.
+            'type' => $approved ? 'kyc_approved' : 'kyc_rejected',
             // Array, not json_encode(): `data` is cast to array on the model, so
             // encoding here stored a double-encoded string that read back as a string.
             'data' => [
-                'type' => 'kyc',
+                'type' => $approved ? 'kyc_approved' : 'kyc_rejected',
                 'new_status' => null,
                 'kyc_status' => $newStatus,
                 'previous_kyc_status' => $previousStatus,
-                'message' => $message,
+                'message_key' => $key,
+                'message_params' => [],
+                'message' => self::renderDefault($key, []),
             ],
             'read_at' => null,
         ]);
@@ -371,7 +562,7 @@ class NotificationController extends Controller
      */
     public static function createOrderNotification($userId, $orderId, $amount = null, $reason = null)
     {
-        $message = 'Your order was cancelled by the supplier and your credits have been refunded.';
+        $key = 'notifications.order_cancelled';
 
         UserNotification::create([
             'users_id' => $userId,
@@ -386,7 +577,9 @@ class NotificationController extends Controller
                 'order_id' => $orderId,
                 'amount' => $amount,
                 'reason' => $reason,
-                'message' => $message,
+                'message_key' => $key,
+                'message_params' => [],
+                'message' => self::renderDefault($key, []),
             ],
             'read_at' => null,
         ]);
@@ -409,9 +602,7 @@ class NotificationController extends Controller
     {
         $approved = (int) $newStatus === \App\Order::STATUS_APPROVED;
 
-        $message = $approved
-            ? 'Your order has been approved. Open My Orders to see your code or delivery details.'
-            : 'Your order was rejected and the credits have been returned to your balance.';
+        $key = $approved ? 'notifications.order_approved' : 'notifications.order_rejected';
 
         UserNotification::create([
             'users_id' => $userId,
@@ -426,10 +617,42 @@ class NotificationController extends Controller
                 'new_status' => $newStatus,
                 'previous_status' => $previousStatus,
                 'amount' => $amount,
-                'message' => $message,
+                'message_key' => $key,
+                'message_params' => [],
+                'message' => self::renderDefault($key, []),
             ],
             'read_at' => null,
         ]);
+    }
+
+    /**
+     * Render a line in the app's DEFAULT locale, whatever the current request happens to
+     * be set to.
+     *
+     * The stored `message` is an audit record of what the customer was told, not what
+     * the API serves — resolveMessage() re-renders from the key on every read. Pinning
+     * it to the default keeps that record stable: without this, a notification written
+     * during an Arabic request would store Arabic and an English one English, purely by
+     * accident of who happened to trigger it.
+     */
+    private static function renderDefault(string $key, array $params): string
+    {
+        return self::composeMessage($key, $params, config('app.locale'));
+    }
+
+    /** Which notifications.* line a credits status maps to. */
+    private static function creditMessageKey($statusId): string
+    {
+        switch ($statusId) {
+            case CreditsTransfer::STATUS_APPROVED:
+                return 'notifications.credit_approved';
+            case CreditsTransfer::STATUS_REJECTED:
+                return 'notifications.credit_rejected';
+            case CreditsTransfer::STATUS_PENDING:
+                return 'notifications.credit_pending';
+            default:
+                return 'notifications.credit_default';
+        }
     }
 
     /**
@@ -448,30 +671,13 @@ class NotificationController extends Controller
     }
 
     /**
-     * Generate user-friendly status messages
-     */
-    private static function generateStatusMessage($statusId, $amount)
-    {
-        switch ($statusId) {
-            case CreditsTransfer::STATUS_APPROVED:
-                return "Your credit request of $amount has been approved and added to your balance.";
-            case CreditsTransfer::STATUS_REJECTED:
-                return "Your credit request of $amount has been rejected. Please contact support for assistance.";
-            case CreditsTransfer::STATUS_PENDING:
-                return "Your credit request of $amount is pending review.";
-            default:
-                return "Your credit request status has been updated.";
-        }
-    }
-
-    /**
      * Get notifications for polling (doesn't mark as read)
      */
     public function getNotificationsForPolling(Request $request)
     {
         $user = Auth::user();
         if (!$user) {
-            return response()->json(['error' => 'Unauthorized'], 401);
+            return response()->json(['error' => __('api.unauthorized')], 401);
         }
 
         // Fetch all notifications for the user, ordered by creation date
@@ -483,26 +689,16 @@ class NotificationController extends Controller
             return response()->json([]);
         }
 
-        $allNotifications = [];
-
-        foreach ($notifications as $notification) {
-            $data = self::dataOf($notification);
-
-            $allNotifications[] = [
-                'id' => $notification->id,
-                'type' => isset($data['new_status']) ? $this->mapStatusToNotificationType($data['new_status']) : 'general',
-                'request_id' => $data['credits_transfer_id'] ?? null,
-                'amount' => $data['amount'] ?? null,
-                'message' => $data['message'] ?? null,
-                'created_at' => $notification->created_at,
-                'read_at' => $notification->read_at,
-            ];
-        }
-
         // NOTE: We DON'T mark notifications as read here
-        // This is just for polling to check for new notifications
-
-        return response()->json($allNotifications);
+        // This is just for polling to check for new notifications.
+        //
+        // Built through present() rather than inline: this block duplicated that
+        // shape and drifted from it (it never read the `type` COLUMN, so every
+        // order notification polled as a credit one), and it read data['message']
+        // directly, which is the untranslated write-time string.
+        return response()->json(
+            $notifications->map(fn ($n) => $this->present($n))->values()
+        );
     }
 
     /**
@@ -513,7 +709,7 @@ class NotificationController extends Controller
     {
         $user = Auth::user();
         if (!$user) {
-            return response()->json(['error' => 'Unauthorized'], 401);
+            return response()->json(['error' => __('api.unauthorized')], 401);
         }
 
         // Fetch only credit-related notifications for the user
@@ -531,25 +727,12 @@ class NotificationController extends Controller
             return response()->json([]);
         }
 
-        $creditNotifications = [];
-
-        foreach ($notifications as $notification) {
-            $data = self::dataOf($notification);
-
-            $creditNotifications[] = [
-                'id' => $notification->id,
-                'type' => isset($data['new_status']) ? $this->mapStatusToNotificationType($data['new_status']) : 'general',
-                'request_id' => $data['credits_transfer_id'] ?? null,
-                'amount' => $data['amount'] ?? null,
-                'message' => $data['message'] ?? null,
-                'created_at' => $notification->created_at,
-                'read_at' => $notification->read_at,
-            ];
-        }
-
         // NOTE: We DON'T mark notifications as read here
-        // This is specifically for polling credit notifications only
-
-        return response()->json($creditNotifications);
+        // This is specifically for polling credit notifications only.
+        // Same reasoning as getNotificationsForPolling() above: shape comes from
+        // present() so it cannot drift, and the message is translated per request.
+        return response()->json(
+            $notifications->map(fn ($n) => $this->present($n))->values()
+        );
     }
 }

@@ -23,7 +23,7 @@ class KycController extends Controller
         $user = $request->user();
 
         if (in_array($user->verification_statuses_id, [User::VERIFICATION_PENDING, User::VERIFICATION_APPROVED])) {
-            return response()->json(['message' => 'Your verification documents have already been submitted.'], 409);
+            return response()->json(['message' => __('api.kyc.already_submitted')], 409);
         }
 
         $request->validate([
@@ -61,7 +61,7 @@ class KycController extends Controller
         }
 
         return response()->json([
-            'message' => 'Verification documents submitted successfully. Your account is pending approval.',
+            'message' => __('api.kyc.submitted'),
             'verification_status' => $user->verification_status,
         ], 200);
     }

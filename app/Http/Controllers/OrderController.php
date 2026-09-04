@@ -78,7 +78,7 @@ class OrderController extends Controller
             ->first();
 
         if (!$order) {
-            return response()->json(['message' => 'Order not found.', 'code' => 'not_found'], 404);
+            return response()->json(['message' => __('api.orders.not_found'), 'code' => 'not_found'], 404);
         }
 
         return response()->json($order);
@@ -105,15 +105,15 @@ class OrderController extends Controller
             // Suppliers require a real MSISDN; this previously accepted any string.
             'recipient_phone_number' => ['nullable', 'string', 'regex:/^\+?[0-9]{7,15}$/'],
         ], [
-            'product_variation_id.exists' => 'This product is no longer available.',
-            'recipient_phone_number.regex' => 'Enter a valid phone number (7-15 digits, optional leading +).',
+            'product_variation_id.exists' => __('api.orders.unavailable'),
+            'recipient_phone_number.regex' => __('api.orders.invalid_phone'),
         ]);
 
         $user = $request->user();
 
         if ($user->verification_status !== 'approved') {
             return response()->json([
-                'message' => 'Your account must be verified before placing orders.',
+                'message' => __('api.orders.kyc_required'),
                 'code' => 'kyc_required',
             ], 403);
         }
@@ -127,7 +127,7 @@ class OrderController extends Controller
         // set independently.
         if (!$variation->product || !$variation->product->is_active) {
             return response()->json([
-                'message' => 'This product is no longer available.',
+                'message' => __('api.orders.unavailable'),
                 'code' => 'product_unavailable',
             ], 422);
         }
@@ -142,14 +142,14 @@ class OrderController extends Controller
 
         if ($productType === 3 && blank($validatedData['recipient_phone_number'] ?? null)) {
             return response()->json([
-                'message' => 'A phone number is required for this product.',
+                'message' => __('api.orders.phone_required'),
                 'code' => 'recipient_phone_required',
             ], 422);
         }
 
         if ($productType === 1 && blank($validatedData['recipient_user'] ?? null)) {
             return response()->json([
-                'message' => 'A user ID is required for this product.',
+                'message' => __('api.orders.user_id_required'),
                 'code' => 'recipient_user_required',
             ], 422);
         }
@@ -221,7 +221,7 @@ class OrderController extends Controller
             // say "you need $3.50 more" with an Add-credits link instead of toasting
             // a bare English sentence with no context (and no way to act on it).
             return response()->json([
-                'message' => 'Not enough credits to place this order.',
+                'message' => __('api.orders.insufficient_credits'),
                 'code' => 'insufficient_credits',
                 'balance' => $shortfall['balance'] ?? null,
                 'required' => $shortfall['required'] ?? null,

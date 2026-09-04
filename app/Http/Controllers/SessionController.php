@@ -16,13 +16,6 @@ class SessionController extends Controller
 
     public function store()
     {
-        // Prefer locale from route {locale}, then ?lang, then Accept-Language
-        $routeLocale = request()->route('locale');
-        $requestedLocale = $routeLocale ?: (request()->get('lang') ?? request()->getPreferredLanguage(['en', 'ar']));
-        if ($requestedLocale && in_array($requestedLocale, ['en', 'ar'])) {
-            app()->setLocale($requestedLocale);
-        }
-
         $attributes = request()->validate([
             'email' => ['required', 'email'],
             'password' => ['required'],
@@ -66,14 +59,14 @@ class SessionController extends Controller
             Auth::guard('web')->logout();
         }
 
-        return response()->json(['message' => 'Logged out successfully.'], 200);
+        return response()->json(['message' => __('api.session.logged_out')], 200);
     }
 
     public function updateProfile(Request $request)
     {
         $user = Auth::user();
         if (!$user) {
-            return response()->json(['message' => 'Unauthenticated.'], 401);
+            return response()->json(['message' => __('auth.unauthenticated')], 401);
         }
 
         // Business fields and user_types_id are intentionally not updatable here:
@@ -90,7 +83,7 @@ class SessionController extends Controller
         // Reload relations so translatable fields (like user_types.title) resolve in the current locale
         $user->loadMissing(['orders', 'credits', 'user_types.priceVariations']);
 
-        return response()->json(['message' => 'Profile updated successfully.', 'user' => $user], 200);
+        return response()->json(['message' => __('api.session.profile_updated'), 'user' => $user], 200);
     }
 
     public function changePassword(Request $request)
