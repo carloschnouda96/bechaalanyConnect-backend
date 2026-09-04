@@ -6,6 +6,7 @@ use Hellotreedigital\Cms\Models\Admin;
 use Hellotreedigital\Cms\Models\AdminRole;
 use Hellotreedigital\Cms\Models\AdminRolePermission;
 use Hellotreedigital\Cms\Models\CmsPage;
+use Illuminate\Pagination\LengthAwarePaginator;
 use Tests\TestCase;
 
 /**
@@ -119,6 +120,25 @@ class AdminPagesRenderTest extends TestCase
             ->assertOk()
             ->assertSee('select2-width-auto', false)
             ->assertSee('Set selected to', false);
+    }
+
+    /**
+     * Laravel 10's default `$rows->links()` view is Tailwind. The CMS never loads
+     * Tailwind — it already ships Bootstrap 4 via `hellotree.cms_assets.styles` —
+     * so without `Paginator::useBootstrap()` the pager on every server-side list
+     * (orders, credits, users, products, KYC, catalog pricing) renders as an
+     * unstyled list of `text-gray-500` / `flex` utilities.
+     */
+    public function test_pagination_links_use_bootstrap_markup(): void
+    {
+        $html = (new LengthAwarePaginator(range(1, 10), 50, 10, 2, [
+            'path' => '/admin/orders',
+        ]))->onEachSide(1)->links()->toHtml();
+
+        $this->assertStringContainsString('class="pagination"', $html);
+        $this->assertStringContainsString('page-item', $html);
+        $this->assertStringContainsString('page-link', $html);
+        $this->assertStringNotContainsString('text-gray-500', $html);
     }
 
     /**
