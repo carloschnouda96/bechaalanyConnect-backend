@@ -11,7 +11,9 @@
 | The factories in NotificationController now store a `message_key` naming one of
 | these lines plus `message_params`, and present() resolves it under the request
 | locale (the read endpoints are all under /{locale}, so App::setLocale is already
-| correct there).
+| correct there). Rows written before message_key existed still resolve: present()
+| reconstructs the key from type / kyc_status / new_status so a language switch
+| re-renders them too.
 |
 | Keep this file and resources/lang/ar/notifications.php in sync, key for key.
 |
