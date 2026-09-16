@@ -56,6 +56,10 @@ class ProductsVariation extends Model  implements TranslatableContract
         'external_price',
         'external_type',
         'cost_price',
+        // Admin-only control, mirrors Product::$extraHidden. supplier_available
+        // stays visible — the storefront reads it to show an out-of-stock notice
+        // when an admin has overridden a row the feed reports unavailable.
+        'ignore_supplier_availability',
     ];
 
     // NOTE: money casts (price => decimal:2) are deliberately NOT added here yet.
@@ -65,6 +69,8 @@ class ProductsVariation extends Model  implements TranslatableContract
     protected $casts = [
         'unit_amount' => 'integer',
         'external_qty_values' => 'array',
+        'ignore_supplier_availability' => 'boolean',
+        'supplier_available' => 'boolean',
     ];
 
     /**

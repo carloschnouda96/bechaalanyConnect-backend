@@ -246,6 +246,125 @@ class SupplierCatalogSyncGroupingTest extends TestCase
         }
     }
 
+    // ------------------------------------------- supplier availability override
+
+    /**
+     * The bug this pins: an admin ticked a variation active in the CMS and the
+     * hourly sync switched it straight back off because the feed said
+     * `available:false`. `ignore_supplier_availability` is the admin's way to win
+     * that argument; `supplier_available` records what the feed said so the CMS
+     * (and the storefront) can show why.
+     */
+    public function test_a_variation_override_survives_the_supplier_reporting_it_unavailable(): void
+    {
+        $connector = $this->connector($this->bundles());
+        $this->enableCategory($connector, true);
+        (new SupplierCatalogSync())->sync($connector);
+
+        $eleven = $this->allVariations()->firstWhere('external_id', 'quota:11');
+        $eleven->ignore_supplier_availability = true;
+        $eleven->save();
+
+        // 11 GB and 45 GB both go out of stock at the supplier.
+        $connector->catalog = [
+            $this->dto('5.5', '5.5 GB', 6.0),
+            $this->dto('11', '11 GB', 10.0, false),
+            $this->dto('45', '45 GB', 20.0, false),
+        ];
+        (new SupplierCatalogSync())->sync($connector);
+
+        $byId = $this->allVariations()->keyBy('external_id');
+        $this->assertSame(1, (int) $byId['quota:11']->is_active, 'the overridden row stays active');
+        $this->assertSame(0, (int) $byId['quota:11']->supplier_available, 'but the feed value is still recorded');
+        $this->assertSame(0, (int) $byId['quota:45']->is_active, 'a sibling without the override still follows the feed');
+        $this->assertSame(1, (int) $byId['quota:5.5']->is_active);
+        $this->assertSame(1, (int) $byId['quota:5.5']->supplier_available);
+    }
+
+    public function test_a_product_level_override_covers_every_variation(): void
+    {
+        $connector = $this->connector($this->bundles());
+        $this->enableCategory($connector, true);
+        (new SupplierCatalogSync())->sync($connector);
+
+        $product = $this->products()->first();
+        $product->ignore_supplier_availability = true;
+        $product->save();
+
+        $connector->catalog = array_map(
+            fn (SupplierProduct $dto) => $this->dto(str_replace('quota:', '', $dto->externalId), $dto->name, $dto->unitCost, false),
+            $this->bundles()
+        );
+        (new SupplierCatalogSync())->sync($connector);
+
+        $this->assertCount(3, $this->allVariations()->where('is_active', 1));
+        $product = $product->fresh();
+        $this->assertSame(1, (int) $product->is_active, 'the grouped product follows its (still active) variations');
+        $this->assertSame(0, (int) $product->supplier_available, 'no row was available this run');
+    }
+
+    public function test_a_withdrawn_row_is_deactivated_despite_the_override(): void
+    {
+        $connector = $this->connector($this->bundles());
+        $this->enableCategory($connector, true);
+        (new SupplierCatalogSync())->sync($connector);
+
+        $eleven = $this->allVariations()->firstWhere('external_id', 'quota:11');
+        $eleven->ignore_supplier_availability = true;
+        $eleven->save();
+
+        // Gone from the feed entirely — nothing to order any more, override or not.
+        $connector->catalog = [$this->dto('5.5', '5.5 GB', 6.0), $this->dto('45', '45 GB', 20.0)];
+        (new SupplierCatalogSync())->sync($connector);
+
+        $this->assertSame(0, (int) $eleven->fresh()->is_active);
+    }
+
+    public function test_import_excluded_beats_the_override(): void
+    {
+        $connector = $this->connector($this->bundles());
+        $this->enableCategory($connector, true);
+        (new SupplierCatalogSync())->sync($connector);
+
+        $product = $this->products()->first();
+        $product->import_excluded = true;
+        $product->ignore_supplier_availability = true;
+        $product->save();
+
+        (new SupplierCatalogSync())->sync($connector);
+
+        $this->assertCount(0, $this->allVariations()->where('is_active', 1));
+        $this->assertSame(0, (int) $product->fresh()->is_active);
+    }
+
+    public function test_ungrouped_override_keeps_product_and_its_variation_active(): void
+    {
+        $connector = $this->connector($this->bundles());
+        $this->enableCategory($connector, false);
+        (new SupplierCatalogSync())->sync($connector);
+
+        $eleven = $this->products()->firstWhere('external_id', 'quota:11');
+        $this->assertSame(1, (int) $eleven->supplier_available, 'the feed value is recorded on the product too');
+        $eleven->ignore_supplier_availability = true;
+        $eleven->save();
+
+        $connector->catalog = [
+            $this->dto('5.5', '5.5 GB', 6.0),
+            $this->dto('11', '11 GB', 10.0, false),
+            $this->dto('45', '45 GB', 20.0, false),
+        ];
+        (new SupplierCatalogSync())->sync($connector);
+
+        $eleven = $eleven->fresh();
+        $this->assertSame(1, (int) $eleven->is_active);
+        $this->assertSame(0, (int) $eleven->supplier_available);
+        $this->assertSame(1, (int) $this->variations($eleven)->first()->is_active);
+
+        $fortyFive = $this->products()->firstWhere('external_id', 'quota:45');
+        $this->assertSame(0, (int) $fortyFive->is_active, 'no override → follows the feed');
+        $this->assertSame(0, (int) $this->variations($fortyFive)->first()->is_active);
+    }
+
     // ---------------------------------------------------------------- helpers
 
     /** @return SupplierProduct[] */

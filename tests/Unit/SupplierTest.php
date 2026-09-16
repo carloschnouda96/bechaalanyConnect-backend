@@ -159,5 +159,12 @@ class SupplierTest extends TestCase
         $this->assertSame(0, SupplierCatalogSync::isActiveAfterImport(true, true));   // offered but excluded → inactive
         $this->assertSame(0, SupplierCatalogSync::isActiveAfterImport(false, false)); // not offered → inactive
         $this->assertSame(0, SupplierCatalogSync::isActiveAfterImport(false, true));  // not offered + excluded → inactive
+
+        // ignore_supplier_availability: the admin's force-on. Beats "not offered",
+        // never beats import_excluded (force-off wins).
+        $this->assertSame(1, SupplierCatalogSync::isActiveAfterImport(false, false, true));
+        $this->assertSame(1, SupplierCatalogSync::isActiveAfterImport(true, false, true));
+        $this->assertSame(0, SupplierCatalogSync::isActiveAfterImport(false, true, true));
+        $this->assertSame(0, SupplierCatalogSync::isActiveAfterImport(true, true, true));
     }
 }

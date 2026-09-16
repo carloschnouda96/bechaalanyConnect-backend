@@ -56,17 +56,28 @@ class Product extends Model  implements TranslatableContract
     use \App\Concerns\HasFullPath;
     use \App\Concerns\HidesExtraAttributes;
 
-    /** Merged into the regenerated `$hidden = ['translations']`. Keeps supplier linkage + our margin out of public API responses. */
+    /**
+     * Merged into the regenerated `$hidden = ['translations']`. Keeps supplier
+     * linkage + our margin out of public API responses.
+     *
+     * `supplier_available` is deliberately NOT hidden — the storefront reads it to
+     * show an out-of-stock notice on a row an admin overrode with
+     * ignore_supplier_availability. `ignore_supplier_availability` itself is an
+     * admin-only control and stays hidden, same as import_excluded.
+     */
     protected $extraHidden = [
         'external_source',
         'external_id',
         'profit_percentage',
         'import_excluded',
+        'ignore_supplier_availability',
     ];
 
     protected $casts = [
         'profit_percentage' => 'decimal:2',
         'import_excluded' => 'boolean',
+        'ignore_supplier_availability' => 'boolean',
+        'supplier_available' => 'boolean',
     ];
 
     public function variations()
