@@ -70,6 +70,11 @@ class SchemaManifest
                     // Registered as `double` in cms_pages to survive the type loop
                     // without that rounding; restored to exact decimal here.
                     'external_price' => ['type' => 'decimal(20,8)', 'null' => true],
+                    // The DEFAULT is what matters here, same reasoning as
+                    // supplier_categories.group_as_single_product below: the CMS
+                    // strips NOT NULL from every registered column, so a row the sync
+                    // hasn't touched yet must read as "no override", not NULL.
+                    'ignore_supplier_availability' => ['type' => 'tinyint(1)', 'null' => false, 'default' => '0'],
                 ],
                 'indexes' => [
                     'products_variations_external_id_index' => ['columns' => ['external_id']],
@@ -91,6 +96,7 @@ class SchemaManifest
                 'columns' => [
                     'profit_percentage' => ['type' => 'decimal(8,2)', 'null' => true],
                     'import_excluded' => ['type' => 'tinyint(1)', 'null' => false, 'default' => '0'],
+                    'ignore_supplier_availability' => ['type' => 'tinyint(1)', 'null' => false, 'default' => '0'],
                 ],
                 'indexes' => [
                     'products_external_source_id_index' => ['columns' => ['external_source', 'external_id']],
