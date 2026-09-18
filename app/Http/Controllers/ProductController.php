@@ -20,7 +20,7 @@ class ProductController extends Controller
             ->where('category_id', $category->id)
             ->firstOrFail();
 
-        $products = Product::where('is_active', 1)->whereHas('subcategory', function ($query) use ($subcategory_slug, $category_slug) {
+        $products = Product::sellable()->whereHas('subcategory', function ($query) use ($subcategory_slug, $category_slug) {
             $query->whereHas('category', function ($q2) use ($category_slug) {
                 $q2->where('slug', $category_slug);
             });
@@ -41,14 +41,14 @@ class ProductController extends Controller
             ->where('category_id', $category->id)
             ->firstOrFail();
 
-        $product_variations = ProductsVariation::whereHas('product', function ($query) use ($slug) {
-            $query->where('slug', $slug);
-        })
+        $product_variations = ProductsVariation::sellable()
+            ->whereHas('product', function ($query) use ($slug) {
+                $query->where('slug', $slug);
+            })
             ->orderBy('ht_pos')
-            ->where('is_active', 1)
             ->get();
         $product = Product::where('slug', $slug)
-            ->with('related_products')
+            ->with(['related_products' => fn ($query) => $query->sellable()])
             ->with('product_type')
             ->firstOrFail();
 

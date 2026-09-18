@@ -7,7 +7,6 @@ use App\Product;
 use App\ProductsVariation;
 use App\Services\Suppliers\Connectors\SwiftConnector;
 use App\Services\Suppliers\Connectors\YassenConnector;
-use App\Services\Suppliers\SupplierCatalogSync;
 use App\Services\Suppliers\SupplierOrderResult;
 use App\Services\Swift\SwiftClient;
 use App\Services\Yassen\YassenClient;
@@ -148,23 +147,4 @@ class SupplierTest extends TestCase
         Http::assertSent(fn ($request) => str_contains($request->url(), '/newOrder/121/params'));
     }
 
-    /**
-     * The import_excluded switch keeps a product inactive even when the supplier
-     * still offers it (available=true), and an excluded product is never made
-     * active by a sync.
-     */
-    public function test_import_excluded_forces_inactive(): void
-    {
-        $this->assertSame(1, SupplierCatalogSync::isActiveAfterImport(true, false));  // offered, not excluded → active
-        $this->assertSame(0, SupplierCatalogSync::isActiveAfterImport(true, true));   // offered but excluded → inactive
-        $this->assertSame(0, SupplierCatalogSync::isActiveAfterImport(false, false)); // not offered → inactive
-        $this->assertSame(0, SupplierCatalogSync::isActiveAfterImport(false, true));  // not offered + excluded → inactive
-
-        // ignore_supplier_availability: the admin's force-on. Beats "not offered",
-        // never beats import_excluded (force-off wins).
-        $this->assertSame(1, SupplierCatalogSync::isActiveAfterImport(false, false, true));
-        $this->assertSame(1, SupplierCatalogSync::isActiveAfterImport(true, false, true));
-        $this->assertSame(0, SupplierCatalogSync::isActiveAfterImport(false, true, true));
-        $this->assertSame(0, SupplierCatalogSync::isActiveAfterImport(true, true, true));
-    }
 }

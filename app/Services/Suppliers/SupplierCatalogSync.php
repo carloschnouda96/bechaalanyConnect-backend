@@ -19,6 +19,39 @@ use Illuminate\Support\Str;
  * vocabulary produced by the connector's fetchCatalog(), so the same engine
  * drives Yassen, Swift, and any future supplier.
  *
+ * OWNERSHIP — every column has exactly one writer
+ * -------------------------------------------------
+ * Two systems used to fight over `is_active`: the admin (CMS) and this sync
+ * (hourly, driven by the supplier's own stock flag). Whoever wrote last won —
+ * which in practice was always the sync, so an admin's "turn this back on"
+ * never stuck. Layering an override flag on top (2026-09-16) only grew the
+ * number of interacting switches without removing the underlying conflict.
+ * The fix is one writer per column:
+ *
+ *   - `is_active` ("Active" in the CMS) is ADMIN-OWNED. This sync sets it
+ *     ONCE, to 1, when a row is first created (see the "seed-once" comments
+ *     on upsertProduct()/upsertVariation()) — and never again. Same rule for
+ *     `product_type_id` and the translated name/description: an admin's edit
+ *     is never reverted by a later sync.
+ *   - `supplier_status` (`Product::SUPPLIER_AVAILABLE` / `_OUT_OF_STOCK` /
+ *     `_WITHDRAWN`, NULL = not supplier-managed) is SYNC-OWNED and read-only
+ *     in the CMS. Written on every upsert from `$dto->available`, and set to
+ *     WITHDRAWN by markWithdrawnProducts()/reconcileGroupedCategories() for a
+ *     row the feed no longer lists at all.
+ *   - Whether a row is shown on the storefront ("sellable") is DERIVED, never
+ *     stored: `is_active = 1 AND (supplier_status IS NULL OR = AVAILABLE)` —
+ *     see `Product::scopeSellable()` / `ProductsVariation::scopeSellable()`,
+ *     used by every public listing/search/detail query and by
+ *     `OrderController::saveOrder`. An out-of-stock row hides itself and
+ *     un-hides itself on restock, with no admin action either way; a withdrawn
+ *     row hides itself permanently regardless of `is_active`, because there is
+ *     nothing left to fulfil an order against.
+ *
+ * `products.import_excluded`'s only real job — "keep this off even though the
+ * supplier offers it" — is simply `is_active = 0` under this model, so it (and
+ * yesterday's override columns) were retired; see migration
+ * `2026_09_17_000001_supplier_status_replaces_availability_flags`.
+ *
  * Flow (per connector):
  *   1. Pull the normalised catalog.
  *   2. Discover supplier categories and upsert them into `supplier_categories`,
@@ -27,28 +60,10 @@ use Illuminate\Support\Str;
  *      Category → Subcategory exists, then upsert the Product + its single
  *      ProductsVariation. The supplier unit cost is stored as the variation
  *      `cost_price`/`external_price`; selling `price` = cost * (1 + profit%).
- *   4. Products that are unavailable, in a disabled category, no longer offered,
- *      or flagged `import_excluded` are deactivated (is_active = 0) — never
- *      deleted, so order history survives. `import_excluded` always wins; a row
- *      flagged `ignore_supplier_availability` (the admin's force-on for a
- *      product/variation the CMS kept reverting) stays active through plain
- *      unavailability, but not through being dropped from the feed entirely —
- *      see isActiveAfterImport() and the SUPPLIER AVAILABILITY OVERRIDE section
- *      below.
- *
- * SUPPLIER AVAILABILITY OVERRIDE
- * -------------------------------
- * An admin enabling a product/variation in the CMS used to be undone by the next
- * sync whenever the supplier's feed still reported it `available:false` —
- * isActiveAfterImport() only looked at that flag and `import_excluded`, so there
- * was no way for the admin's decision to survive a run. `products`/
- * `products_variations.ignore_supplier_availability` is that missing input:
- * isActiveAfterImport() now takes it as a third argument and treats it as
- * equivalent to "available" (but never overrides `import_excluded`).
- * `supplier_available` records the feed's own last value per row (read-only in
- * the CMS) so admins — and the storefront — can see why a row needed the
- * override. A row that disappears from the feed entirely is still deactivated
- * regardless of the override: there is nothing left to fulfil an order against.
+ *   4. A product/variation the feed no longer lists at all — withdrawn from
+ *      the supplier's catalog, or its category's import was disabled — gets
+ *      `supplier_status = WITHDRAWN`. Never deleted, so order history
+ *      survives, and never `is_active`, per the ownership rule above.
  *
  * GROUPED CATEGORIES
  * ------------------
@@ -78,25 +93,6 @@ class SupplierCatalogSync
      * @var array<int,Product>
      */
     private array $groupProducts = [];
-
-    /**
-     * Selling price is suppressed (is_active = 0) when the supplier doesn't offer
-     * the product OR the admin flagged it as excluded from import. This is the
-     * single rule the "except Netflix/Shahid/OSN+/Anghami" switch relies on.
-     *
-     * $override is products.ignore_supplier_availability /
-     * products_variations.ignore_supplier_availability — the admin's answer to a
-     * product the CMS kept re-deactivating because the feed reported it
-     * unavailable. It beats "not offered" but never beats $excluded (force-off
-     * still wins), and it is applied only here: a row absent from the feed
-     * entirely is still deactivated by deactivateStale()/reconcileGroupedCategories()
-     * regardless of the override, since there is then nothing to fulfil an order
-     * against.
-     */
-    public static function isActiveAfterImport(bool $available, bool $excluded, bool $override = false): int
-    {
-        return (!$excluded && ($available || $override)) ? 1 : 0;
-    }
 
     /**
      * @return array{categories:int,created:int,updated:int,price_changed:int,deactivated:int,skipped:int,errors:int}
@@ -149,14 +145,15 @@ class SupplierCatalogSync
             }
         }
 
-        // 4. Deactivate imported products no longer offered / in disabled categories.
+        // 4. Mark products/variations the feed no longer lists at all as withdrawn
+        // (supplier_status only — never is_active, see the class docblock).
         // A multi-endpoint connector reports which slice of its catalog it could
         // actually reach, so an endpoint outage isn't read as a withdrawal.
         $scopes = $connector instanceof PartialCatalogAware ? $connector->catalogScopes() : null;
-        $summary['deactivated'] = $this->deactivateStale($products, $enabled, $source, $scopes);
+        $summary['deactivated'] = $this->markWithdrawnProducts($products, $enabled, $source, $scopes);
 
-        // 5. Grouped categories keep their withdrawn rows as deactivated variations
-        // of the shared product rather than as deactivated products.
+        // 5. Grouped categories keep their withdrawn rows as withdrawn variations
+        // of the shared product rather than as withdrawn products.
         $summary['deactivated'] += $this->reconcileGroupedCategories($products, $enabled, $source, $scopes);
 
         return $summary;
@@ -237,33 +234,24 @@ class SupplierCatalogSync
             // all), so this is usually null and the storefront shows its placeholder
             // until an admin uploads one on the CMS products page.
             $product->image = $dto->image;
+            // Admin-owned from here on (see class docblock's ownership table):
+            // is_active, product_type_id and the translated name/description are
+            // set once, at creation, and never written again by this sync.
+            $product->is_active = 1;
+            $product->product_type_id = $dto->productTypeId;
+            $this->setTranslations($product, ['name' => $name, 'description' => '']);
         }
-
-        // Excluded products (admin's "except Netflix…" switch) stay inactive even
-        // when the supplier still offers them.
-        $excluded = (bool) ($product->import_excluded ?? false);
-
-        // Looked up before $active is computed so a variation-level override can
-        // feed into it — an admin can force a single row on without touching the
-        // rest of a (single-variation, here) product.
-        $existingVariation = $this->findVariation($externalId, $source);
-        $override = (bool) ($product->ignore_supplier_availability ?? false)
-            || (bool) ($existingVariation->ignore_supplier_availability ?? false);
-        $active = self::isActiveAfterImport($dto->available, $excluded, $override);
 
         // NOTE: $product->image is deliberately not touched on update — an admin's
         // CMS upload must survive every re-sync. See ensureLocalTree() for the same
         // rule applied to categories.
         $product->subcategory_id = $subcategory->id;
-        $product->product_type_id = $dto->productTypeId;
-        $product->is_active = $active;
-        $product->supplier_available = $dto->available;
+        $product->supplier_status = $dto->available ? Product::SUPPLIER_AVAILABLE : Product::SUPPLIER_OUT_OF_STOCK;
         $product->cms_draft_flag = 0;
-        $this->setTranslations($product, ['name' => $name, 'description' => '']);
         $product->save();
 
         // Single variation per supplier product.
-        $variation = $this->upsertVariation($product, $dto, $source, $active, false, $existingVariation);
+        $variation = $this->upsertVariation($product, $dto, $source, false);
 
         return [
             'status' => $isNew ? 'created' : 'updated',
@@ -287,17 +275,7 @@ class SupplierCatalogSync
 
         $product = $this->ensureGroupProduct($supplierCategory, $dto, $subcategory, $source);
 
-        $excluded = (bool) ($product->import_excluded ?? false);
-
-        // Looked up before $active is computed, same reasoning as upsertProduct():
-        // an admin can override a single size in the dropdown, or the whole
-        // product's ignore_supplier_availability covers every row.
-        $existingVariation = $this->findVariation($dto->externalId, $source);
-        $override = (bool) ($product->ignore_supplier_availability ?? false)
-            || (bool) ($existingVariation->ignore_supplier_availability ?? false);
-        $active = self::isActiveAfterImport($dto->available, $excluded, $override);
-
-        $variation = $this->upsertVariation($product, $dto, $source, $active, true, $existingVariation);
+        $variation = $this->upsertVariation($product, $dto, $source, true);
 
         return [
             'status' => $variation['created'] ? 'created' : 'updated',
@@ -391,24 +369,24 @@ class SupplierCatalogSync
         Product $product,
         SupplierProduct $dto,
         string $source,
-        int $active,
-        bool $grouped,
-        ?ProductsVariation $variation = null
+        bool $grouped
     ): array {
         $externalId = $dto->externalId;
         $name = trim($dto->name) ?: ('Product ' . $externalId);
         $cost = $dto->unitCost;
 
-        // Callers that already looked the row up to read its override (both
-        // upsertProduct() and upsertGroupedVariation()) pass it in so it isn't
-        // fetched twice; findVariation() below is what they use for that lookup.
-        $variation ??= $this->findVariation($externalId, $source);
+        $variation = $this->findVariation($externalId, $source);
 
         $isNew = $variation === null;
         if ($isNew) {
             $variation = new ProductsVariation();
             $variation->external_id = $externalId;
             $variation->slug = $this->uniqueSlug($name, $externalId, $source);
+            // Admin-owned from here on (see class docblock's ownership table):
+            // is_active and the translated name/description are set once, at
+            // creation, and never written again by this sync.
+            $variation->is_active = 1;
+            $this->setTranslations($variation, ['name' => $name, 'description' => '']);
         }
 
         $variation->product_id = $product->id;
@@ -434,10 +412,8 @@ class SupplierCatalogSync
         $variation->price = $newPrice;
         $variation->external_type = $dto->externalType;
         $variation->external_qty_values = $this->normalizeQtyValues($dto->qtyValues);
-        $variation->is_active = $active;
-        $variation->supplier_available = $dto->available;
+        $variation->supplier_status = $dto->available ? Product::SUPPLIER_AVAILABLE : Product::SUPPLIER_OUT_OF_STOCK;
         $variation->cms_draft_flag = 0;
-        $this->setTranslations($variation, ['name' => $name, 'description' => '']);
         $variation->save();
 
         return ['created' => $isNew, 'price_changed' => $priceChanged];
@@ -445,10 +421,7 @@ class SupplierCatalogSync
 
     /**
      * The (source, external_id) lookup used to decide whether a supplier row is
-     * new, plus the orphan-reclaim fallback. Extracted out of upsertVariation()
-     * so a caller can read ignore_supplier_availability off the existing row
-     * BEFORE computing $active, then hand the same row back in to avoid a second
-     * query.
+     * new, plus the orphan-reclaim fallback.
      */
     private function findVariation(string $externalId, string $source): ?ProductsVariation
     {
@@ -551,41 +524,38 @@ class SupplierCatalogSync
     }
 
     /**
-     * Deactivate imported products that are no longer in the feed, are excluded,
-     * or belong to a category whose import was disabled. Excluded products are
-     * kept out of the keep-set so they never reactivate.
-     *
-     * Unavailability alone does NOT belong in this sweep any more: upsertProduct()
-     * already applies availability (and ignore_supplier_availability) per row via
-     * isActiveAfterImport(), so a keep-set that also required $dto->available would
-     * immediately re-deactivate any row an admin had forced on — the exact bug this
-     * override exists to fix. This sweep's only job is withdrawal: a row simply not
-     * present in the feed any more, which the override cannot and should not survive.
+     * Mark products (and their variations) `supplier_status = WITHDRAWN` when
+     * they are no longer in the feed at all, or belong to a category whose
+     * import was disabled. This is the ONLY thing that overrides an admin's
+     * `is_active` choice — everything else (plain out-of-stock, an admin
+     * turning a row off) is handled without touching it at all (see the class
+     * docblock's ownership table). `is_active` itself is never read or
+     * written here.
      *
      * @param SupplierProduct[] $products
      * @param string[]|null $scopes external_id prefixes the connector vouched for
      *                              (see PartialCatalogAware); null = whole catalog
      */
-    private function deactivateStale(array $products, $enabled, string $source, ?array $scopes = null): int
+    private function markWithdrawnProducts(array $products, $enabled, string $source, ?array $scopes = null): int
     {
-        $activeExternalIds = [];
+        $keepExternalIds = [];
         foreach ($products as $dto) {
             $supplierCategory = $enabled->get($dto->categoryExternalId);
             // A grouped category's rows live as variations, so their ids no longer
             // name a product. Leaving them in the keep-set is what would strand the
-            // per-row product shells from before grouping was turned on, active but
+            // per-row product shells from before grouping was turned on, alive but
             // childless — this is what retires them on the first grouped sync.
             if ($supplierCategory && !$supplierCategory->group_as_single_product) {
-                $activeExternalIds[] = $dto->externalId;
+                $keepExternalIds[] = $dto->externalId;
             }
         }
 
         // Grouped products are keyed by a synthetic id that never appears in a feed,
-        // so nothing else can keep them alive here. Their activation follows their
+        // so nothing else can keep them alive here. Their status follows their
         // variations instead — see reconcileGroupedCategories().
         foreach ($enabled as $supplierCategory) {
             if ($supplierCategory->group_as_single_product) {
-                $activeExternalIds[] = self::groupExternalId($supplierCategory);
+                $keepExternalIds[] = self::groupExternalId($supplierCategory);
             }
         }
 
@@ -597,10 +567,13 @@ class SupplierCatalogSync
 
         $query = Product::withoutGlobalScope('cms_draft_flag')
             ->where('external_source', $source)
-            ->where('is_active', 1);
+            ->where(function ($q) {
+                $q->whereNull('supplier_status')
+                    ->orWhere('supplier_status', '!=', Product::SUPPLIER_WITHDRAWN);
+            });
 
-        // Limit deactivation to the families actually fetched; products outside
-        // them were simply not observed, not withdrawn.
+        // Limit to the families actually fetched; products outside them were
+        // simply not observed this run, not withdrawn.
         if (!empty($scopes)) {
             $query->where(function ($q) use ($scopes) {
                 foreach ($scopes as $prefix) {
@@ -609,17 +582,17 @@ class SupplierCatalogSync
             });
         }
 
-        if (!empty($activeExternalIds)) {
-            $query->whereNotIn('external_id', $activeExternalIds);
+        if (!empty($keepExternalIds)) {
+            $query->whereNotIn('external_id', $keepExternalIds);
         }
 
         $count = 0;
         foreach ($query->get() as $product) {
-            $product->is_active = 0;
+            $product->supplier_status = Product::SUPPLIER_WITHDRAWN;
             $product->save();
             ProductsVariation::withoutGlobalScope('cms_draft_flag')
                 ->where('product_id', $product->id)
-                ->update(['is_active' => 0]);
+                ->update(['supplier_status' => Product::SUPPLIER_WITHDRAWN]);
             $count++;
         }
 
@@ -627,21 +600,23 @@ class SupplierCatalogSync
     }
 
     /**
-     * The grouped equivalent of deactivateStale(): in a grouped category a
+     * The grouped equivalent of markWithdrawnProducts(): in a grouped category a
      * withdrawn supplier row is a dead VARIATION of a still-live product, not a
-     * dead product, so it needs its own sweep.
+     * dead product, so it needs its own sweep. Only `supplier_status` is ever
+     * written here — never `is_active` (admin-owned; see the class docblock).
      *
-     * The grouped product then simply follows its variations — live while any of
-     * them is, dark once the supplier has withdrawn the lot — which also means it
-     * comes back on its own when the supplier restocks. `import_excluded` still
-     * overrides, through the same isActiveAfterImport() rule as everywhere else.
+     * The grouped product's own `supplier_status` rolls up from its variations —
+     * available while any size is, out_of_stock while any size is (but none
+     * available), withdrawn once every size is — which also means it comes back
+     * on its own the moment the supplier restocks a single size, with no admin
+     * action either way.
      *
      * @param SupplierProduct[] $products
      * @param string[]|null $scopes external_id prefixes the connector vouched for
      */
     private function reconcileGroupedCategories(array $products, $enabled, string $source, ?array $scopes = null): int
     {
-        // Nothing reachable this run — see deactivateStale().
+        // Nothing reachable this run — see markWithdrawnProducts().
         if ($scopes === []) {
             return 0;
         }
@@ -662,26 +637,25 @@ class SupplierCatalogSync
                 continue; // never synced (category enabled after the last run)
             }
 
-            // Kept regardless of $dto->available — upsertGroupedVariation() already
-            // applied availability (and ignore_supplier_availability) per row.
-            // Requiring $dto->available here too would immediately re-deactivate an
-            // admin-overridden row right after the upsert loop turned it on, which
-            // is the bug this override exists to fix. See deactivateStale() for the
-            // same reasoning on the ungrouped path.
-            $activeExternalIds = [];
-            $anyAvailableThisRun = false;
+            // Rows the feed still lists this run, regardless of available/
+            // out_of_stock — upsertGroupedVariation() already set each row's own
+            // supplier_status. This keep-set exists only to find rows the feed
+            // dropped entirely.
+            $keepExternalIds = [];
             foreach ($products as $dto) {
                 if ($dto->categoryExternalId === $supplierCategory->external_id) {
-                    $activeExternalIds[] = $dto->externalId;
-                    $anyAvailableThisRun = $anyAvailableThisRun || $dto->available;
+                    $keepExternalIds[] = $dto->externalId;
                 }
             }
 
             $query = ProductsVariation::withoutGlobalScope('cms_draft_flag')
                 ->where('product_id', $product->id)
-                ->where('is_active', 1)
+                ->where(function ($q) {
+                    $q->whereNull('supplier_status')
+                        ->orWhere('supplier_status', '!=', Product::SUPPLIER_WITHDRAWN);
+                })
                 // A hand-added variation on a grouped product is the admin's, not
-                // the sync's, and is never deactivated by a supplier's silence.
+                // the sync's, and is never marked withdrawn by a supplier's silence.
                 ->whereNotNull('external_id');
 
             // Same rule as the product sweep: only families the connector actually
@@ -694,32 +668,29 @@ class SupplierCatalogSync
                 });
             }
 
-            if (!empty($activeExternalIds)) {
-                $query->whereNotIn('external_id', $activeExternalIds);
+            if (!empty($keepExternalIds)) {
+                $query->whereNotIn('external_id', $keepExternalIds);
             }
 
             foreach ($query->get() as $variation) {
-                $variation->is_active = 0;
+                $variation->supplier_status = Product::SUPPLIER_WITHDRAWN;
                 $variation->save();
                 $count++;
             }
 
-            $hasActiveVariation = ProductsVariation::withoutGlobalScope('cms_draft_flag')
+            $variationStatuses = ProductsVariation::withoutGlobalScope('cms_draft_flag')
                 ->where('product_id', $product->id)
-                ->where('is_active', 1)
-                ->exists();
+                ->whereNotNull('external_id')
+                ->pluck('supplier_status');
 
-            // No $override argument here on purpose: a grouped product's own
-            // active flag follows its variations, not a direct force-on — with zero
-            // active variations (every row genuinely withdrawn from the feed) there
-            // is nothing to sell regardless of the product-level checkbox. The
-            // checkbox instead cascades INTO each variation's own override in
-            // upsertGroupedVariation(), so $hasActiveVariation already reflects it
-            // in the (normal) case where the rows are merely unavailable, not gone.
-            $desired = self::isActiveAfterImport($hasActiveVariation, (bool) $product->import_excluded);
-            $product->supplier_available = $anyAvailableThisRun;
-            if ((int) $product->is_active !== $desired || $product->isDirty('supplier_available')) {
-                $product->is_active = $desired;
+            $rollup = match (true) {
+                $variationStatuses->contains(Product::SUPPLIER_AVAILABLE) => Product::SUPPLIER_AVAILABLE,
+                $variationStatuses->contains(Product::SUPPLIER_OUT_OF_STOCK) => Product::SUPPLIER_OUT_OF_STOCK,
+                default => Product::SUPPLIER_WITHDRAWN,
+            };
+
+            if ($product->supplier_status !== $rollup) {
+                $product->supplier_status = $rollup;
                 $product->save();
             }
         }

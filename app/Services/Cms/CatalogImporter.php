@@ -36,7 +36,6 @@ class CatalogImporter
         'product_type_id' => 'int',
         'product_is_active' => 'bool',
         'profit_percentage' => 'decimal',
-        'import_excluded' => 'bool',
     ];
 
     private const VARIATION_COLUMNS = [
@@ -51,7 +50,6 @@ class CatalogImporter
         'product_type_id' => 'product_type_id',
         'product_is_active' => 'is_active',
         'profit_percentage' => 'profit_percentage',
-        'import_excluded' => 'import_excluded',
     ];
 
     private const VARIATION_ATTRIBUTE = [

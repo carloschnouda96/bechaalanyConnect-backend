@@ -89,14 +89,15 @@ class OrderController extends Controller
         $requestedLocale = app()->getLocale();
 
         $validatedData = $request->validate([
-            // Rule::exists scoped to is_active. The plain `exists` rule accepted any
-            // variation id, so a product the supplier sync had deactivated (withdrawn
-            // upstream, or excluded by an admin) stayed orderable indefinitely — the
-            // user was charged and the order could never be fulfilled.
+            // Just existence here — "is this actually sellable" (is_active AND
+            // supplier stock, on both the variation and its product) is a combined
+            // rule (ProductsVariation::scopeSellable()) that Rule::exists can't
+            // express as a single `where`, so it's checked below via sellable()
+            // instead, with its own message/code.
             'product_variation_id' => [
                 'required',
                 'integer',
-                Rule::exists('products_variations', 'id')->where('is_active', 1),
+                Rule::exists('products_variations', 'id'),
             ],
             // `max` added: quantity was unbounded, so a single request could debit an
             // arbitrarily large amount and place an absurd order at the supplier.
@@ -118,14 +119,15 @@ class OrderController extends Controller
             ], 403);
         }
 
-        $variation = ProductsVariation::with(['priceVariations', 'product'])
-            ->where('is_active', 1)
-            ->findOrFail($validatedData['product_variation_id']);
+        // sellable() combines is_active with supplier stock on both the variation
+        // and its parent product (Product::scopeSellable()) — a variation whose
+        // own row is on but whose product is off (or out of stock, or withdrawn)
+        // is caught in this one query instead of a separate follow-up check.
+        $variation = ProductsVariation::sellable()
+            ->with(['priceVariations', 'product'])
+            ->find($validatedData['product_variation_id']);
 
-        // A variation can be active while its parent product is not — the sync
-        // deactivates the product on exclusion, and is_active on the variation is
-        // set independently.
-        if (!$variation->product || !$variation->product->is_active) {
+        if (!$variation) {
             return response()->json([
                 'message' => __('api.orders.unavailable'),
                 'code' => 'product_unavailable',
