@@ -19,8 +19,8 @@ class SearchController extends Controller
      * That had four problems:
      *   - an empty or one-character term matched the entire catalogue and returned
      *     every product, with Product::$with dragging subcategory.category along
-     *   - inactive and import-excluded products showed up in results and linked to
-     *     pages that cannot be bought
+     *   - inactive or supplier-out-of-stock products showed up in results and linked
+     *     to pages that cannot be bought
      *   - matches came from every locale at once, so an Arabic search returned rows
      *     matched on their English name
      *   - `%` and `_` in the term are LIKE wildcards; unescaped, a term of "%" was a
@@ -38,7 +38,7 @@ class SearchController extends Controller
         // Escape LIKE metacharacters so they are matched literally.
         $term = addcslashes($validated['name'], '%_\\');
 
-        $products = Product::where('is_active', 1)
+        $products = Product::sellable()
             ->whereHas('translations', function ($query) use ($term) {
                 $query->where('locale', app()->getLocale())
                     ->where('name', 'like', '%' . $term . '%');

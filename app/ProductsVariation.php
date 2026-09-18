@@ -50,16 +50,15 @@ class ProductsVariation extends Model  implements TranslatableContract
      * margin on the public storefront: ProductController::SingleProduct returns
      * variations unauthenticated, so anyone could derive the markup on every product.
      * external_qty_values stays visible — the storefront renders it as preset amounts.
+     * supplier_status mirrors Product::$extraHidden — an internal sync signal,
+     * filtered on server-side via sellable(), never needed by the client.
      */
     protected $extraHidden = [
         'external_id',
         'external_price',
         'external_type',
         'cost_price',
-        // Admin-only control, mirrors Product::$extraHidden. supplier_available
-        // stays visible — the storefront reads it to show an out-of-stock notice
-        // when an admin has overridden a row the feed reports unavailable.
-        'ignore_supplier_availability',
+        'supplier_status',
     ];
 
     // NOTE: money casts (price => decimal:2) are deliberately NOT added here yet.
@@ -69,9 +68,24 @@ class ProductsVariation extends Model  implements TranslatableContract
     protected $casts = [
         'unit_amount' => 'integer',
         'external_qty_values' => 'array',
-        'ignore_supplier_availability' => 'boolean',
-        'supplier_available' => 'boolean',
     ];
+
+    /**
+     * A variation the storefront may sell: this row is switched on AND (it
+     * isn't supplier-managed OR the supplier currently has it in stock) AND
+     * its parent product is sellable too (Product::scopeSellable — a product
+     * can be admin-deactivated independently of its variations). See
+     * Product::scopeSellable() for the shared ownership model.
+     */
+    public function scopeSellable($query)
+    {
+        return $query->where('is_active', 1)
+            ->where(function ($q) {
+                $q->whereNull('supplier_status')
+                    ->orWhere('supplier_status', Product::SUPPLIER_AVAILABLE);
+            })
+            ->whereHas('product', fn ($q) => $q->sellable());
+    }
 
     /**
      * All price variations (one per user type typically).

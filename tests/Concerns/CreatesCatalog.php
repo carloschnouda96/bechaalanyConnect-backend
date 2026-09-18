@@ -20,8 +20,18 @@ use App\Subcategory;
  */
 trait CreatesCatalog
 {
-    protected function createVariation(float $price = 5.00, int $productTypeId = 2, bool $active = true): ProductsVariation
-    {
+    /**
+     * @param string|null $supplierStatus One of Product::SUPPLIER_* to build a
+     *     supplier-managed row (also sets a dummy `external_source`), or null
+     *     for a plain platform row (the default — matches every existing
+     *     caller). See Product::scopeSellable().
+     */
+    protected function createVariation(
+        float $price = 5.00,
+        int $productTypeId = 2,
+        bool $active = true,
+        ?string $supplierStatus = null
+    ): ProductsVariation {
         $suffix = uniqid();
 
         $category = Category::create([
@@ -40,6 +50,9 @@ trait CreatesCatalog
             'subcategory_id' => $subcategory->id,
             'product_type_id' => $productTypeId,
             'is_active' => $active ? 1 : 0,
+            'external_source' => $supplierStatus !== null ? 'test-supplier' : null,
+            'external_id' => $supplierStatus !== null ? 'ext-' . $suffix : null,
+            'supplier_status' => $supplierStatus,
         ]);
 
         return ProductsVariation::create([
@@ -48,6 +61,7 @@ trait CreatesCatalog
             'price' => $price,
             'cost_price' => round($price / 2, 2),
             'is_active' => $active ? 1 : 0,
+            'supplier_status' => $supplierStatus,
         ]);
     }
 }

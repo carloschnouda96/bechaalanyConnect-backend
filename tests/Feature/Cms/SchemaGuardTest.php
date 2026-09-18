@@ -39,10 +39,15 @@ class SchemaGuardTest extends TestCase
             'orders.external_response' => ['orders', 'external_response'],
             'products.external_source' => ['products', 'external_source'],
             'products.external_id' => ['products', 'external_id'],
+            // Read-only sync status; losing this drops the only durable record of
+            // why a product is (in)visible and Product::scopeSellable() would then
+            // treat every un-synced row as available (NULL is "not supplier-managed").
+            'products.supplier_status' => ['products', 'supplier_status'],
             'products_variations.external_id' => ['products_variations', 'external_id'],
             'products_variations.external_price' => ['products_variations', 'external_price'],
             'products_variations.external_type' => ['products_variations', 'external_type'],
             'products_variations.external_qty_values' => ['products_variations', 'external_qty_values'],
+            'products_variations.supplier_status' => ['products_variations', 'supplier_status'],
             'supplier_categories.parent_external_id' => ['supplier_categories', 'parent_external_id'],
             'supplier_categories.image' => ['supplier_categories', 'image'],
             'supplier_categories.category_id' => ['supplier_categories', 'category_id'],

@@ -792,7 +792,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `batch` int(11) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=48 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=49 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `orders`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -902,10 +902,8 @@ CREATE TABLE `products` (
   `product_type_id` int(10) unsigned NOT NULL,
   `external_source` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `external_id` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `supplier_status` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `profit_percentage` decimal(8,2) DEFAULT NULL,
-  `import_excluded` tinyint(1) NOT NULL DEFAULT '0',
-  `supplier_available` tinyint(1) DEFAULT NULL,
-  `ignore_supplier_availability` tinyint(1) NOT NULL DEFAULT '0',
   `ht_pos` int(11) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -917,7 +915,7 @@ CREATE TABLE `products` (
   KEY `products_product_type_id_foreign` (`product_type_id`),
   CONSTRAINT `products_product_type_id_foreign` FOREIGN KEY (`product_type_id`) REFERENCES `product_type` (`id`),
   CONSTRAINT `products_subcategory_id_foreign` FOREIGN KEY (`subcategory_id`) REFERENCES `subcategories` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=349 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=351 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `products_translations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -933,7 +931,7 @@ CREATE TABLE `products_translations` (
   PRIMARY KEY (`id`),
   KEY `translatable_id_1751382638` (`product_id`),
   CONSTRAINT `translatable_id_1751382638` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=697 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=701 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `products_variations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -951,8 +949,7 @@ CREATE TABLE `products_variations` (
   `external_price` decimal(20,8) DEFAULT NULL,
   `external_type` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `external_qty_values` json DEFAULT NULL,
-  `supplier_available` tinyint(1) DEFAULT NULL,
-  `ignore_supplier_availability` tinyint(1) NOT NULL DEFAULT '0',
+  `supplier_status` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `unit_amount` int(10) unsigned DEFAULT NULL,
   `ht_pos` int(11) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
@@ -961,7 +958,7 @@ CREATE TABLE `products_variations` (
   KEY `products_variations_external_id_index` (`external_id`),
   KEY `products_variations_product_active_index` (`product_id`,`is_active`),
   CONSTRAINT `products_variations_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=355 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=369 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `products_variations_translations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -978,7 +975,7 @@ CREATE TABLE `products_variations_translations` (
   PRIMARY KEY (`id`),
   KEY `translatable_id_1751389128` (`products_variation_id`),
   CONSTRAINT `translatable_id_1751389128` FOREIGN KEY (`products_variation_id`) REFERENCES `products_variations` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=709 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=737 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `related_product_product`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -1144,7 +1141,7 @@ CREATE TABLE `supplier_categories` (
   KEY `supplier_categories_subcategory_id_foreign` (`subcategory_id`),
   CONSTRAINT `supplier_categories_category_id_foreign` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`) ON DELETE SET NULL,
   CONSTRAINT `supplier_categories_subcategory_id_foreign` FOREIGN KEY (`subcategory_id`) REFERENCES `subcategories` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=794 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=800 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `user_notifications`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;

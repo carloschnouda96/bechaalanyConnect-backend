@@ -86,10 +86,14 @@ class SupplierCatalogSyncGroupingTest extends TestCase
 
         (new SupplierCatalogSync())->sync($connector);
 
-        $active = $this->products()->where('is_active', 1);
-        $this->assertCount(1, $active, 'the per-row shells must not stay in the catalog');
+        // The per-row shells are retired via supplier_status, not is_active — see
+        // the class docblock's ownership table. An admin could still see and
+        // re-activate a stray shell in the CMS; sellable() is what the storefront
+        // (and this assertion) actually cares about.
+        $notWithdrawn = $this->products()->where('supplier_status', '!=', Product::SUPPLIER_WITHDRAWN);
+        $this->assertCount(1, $notWithdrawn, 'the per-row shells must not stay in the catalog');
 
-        $product = $active->first();
+        $product = $notWithdrawn->first();
         $this->assertSame('group:' . self::CATEGORY, $product->external_id);
 
         $after = $this->allVariations()->pluck('id', 'external_id');
@@ -107,11 +111,11 @@ class SupplierCatalogSyncGroupingTest extends TestCase
         );
 
         foreach (Product::withoutGlobalScope('cms_draft_flag')->whereIn('id', $shellIds)->get() as $shell) {
-            $this->assertSame(0, (int) $shell->is_active, "shell {$shell->external_id} should be deactivated");
+            $this->assertSame(Product::SUPPLIER_WITHDRAWN, $shell->supplier_status, "shell {$shell->external_id} should be withdrawn");
         }
     }
 
-    public function test_a_withdrawn_bundle_deactivates_only_its_own_variation(): void
+    public function test_a_withdrawn_bundle_marks_only_its_own_variation_withdrawn(): void
     {
         $connector = $this->connector($this->bundles());
         $this->enableCategory($connector, true);
@@ -122,12 +126,14 @@ class SupplierCatalogSyncGroupingTest extends TestCase
         (new SupplierCatalogSync())->sync($connector);
 
         $product = $this->products()->first();
-        $this->assertSame(1, (int) $product->fresh()->is_active, 'the grouped product stays live while any bundle is');
+        $this->assertSame(1, (int) $product->fresh()->is_active, 'is_active is admin-owned — withdrawal never touches it');
 
         $byId = $this->allVariations()->keyBy('external_id');
-        $this->assertSame(0, (int) $byId['quota:11']->is_active);
-        $this->assertSame(1, (int) $byId['quota:5.5']->is_active);
-        $this->assertSame(1, (int) $byId['quota:45']->is_active);
+        $this->assertSame(Product::SUPPLIER_WITHDRAWN, $byId['quota:11']->supplier_status);
+        $this->assertSame(Product::SUPPLIER_AVAILABLE, $byId['quota:5.5']->supplier_status);
+        $this->assertSame(Product::SUPPLIER_AVAILABLE, $byId['quota:45']->supplier_status);
+        // is_active stays on for all three — sellability is what changed, not ownership.
+        $this->assertSame(1, (int) $byId['quota:11']->is_active);
     }
 
     public function test_grouped_product_goes_dark_and_comes_back_with_its_bundles(): void
@@ -136,6 +142,8 @@ class SupplierCatalogSyncGroupingTest extends TestCase
         $this->enableCategory($connector, true);
         (new SupplierCatalogSync())->sync($connector);
 
+        // Every bundle reports out of stock — still listed by the feed, just
+        // unavailable, which is NOT the same as being withdrawn from it.
         $connector->catalog = array_map(
             fn (SupplierProduct $dto) => $this->dto(
                 str_replace('quota:', '', $dto->externalId),
@@ -146,11 +154,21 @@ class SupplierCatalogSyncGroupingTest extends TestCase
             $this->bundles()
         );
         (new SupplierCatalogSync())->sync($connector);
-        $this->assertSame(0, (int) $this->products()->first()->fresh()->is_active);
+
+        $product = $this->products()->first()->fresh();
+        $this->assertSame(Product::SUPPLIER_OUT_OF_STOCK, $product->supplier_status);
+        $this->assertSame(1, (int) $product->is_active, 'is_active is admin-owned; plain unavailability never touches it');
+        $this->assertFalse(
+            Product::sellable()->whereKey($product->id)->exists(),
+            'an out-of-stock grouped product must not be sellable, with no admin action needed'
+        );
 
         $connector->catalog = $this->bundles();
         (new SupplierCatalogSync())->sync($connector);
-        $this->assertSame(1, (int) $this->products()->first()->fresh()->is_active);
+
+        $product = $product->fresh();
+        $this->assertSame(Product::SUPPLIER_AVAILABLE, $product->supplier_status);
+        $this->assertTrue(Product::sellable()->whereKey($product->id)->exists(), 'restocking un-hides it automatically');
     }
 
     public function test_an_unreachable_family_deactivates_nothing(): void
@@ -246,123 +264,120 @@ class SupplierCatalogSyncGroupingTest extends TestCase
         }
     }
 
-    // ------------------------------------------- supplier availability override
+    // ---------------------------------------------------------- catalog ownership
 
     /**
-     * The bug this pins: an admin ticked a variation active in the CMS and the
-     * hourly sync switched it straight back off because the feed said
-     * `available:false`. `ignore_supplier_availability` is the admin's way to win
-     * that argument; `supplier_available` records what the feed said so the CMS
-     * (and the storefront) can show why.
+     * The bug this pins: an admin's Active choice on a supplier row used to be
+     * undone by the next sync — always, since the sync wrote `is_active` from
+     * the feed on every run. Now it writes `is_active` once, at creation, and
+     * never again; sellability is derived from `is_active` + `supplier_status`
+     * at read time instead. See the class docblock's ownership table.
      */
-    public function test_a_variation_override_survives_the_supplier_reporting_it_unavailable(): void
+    public function test_admin_is_active_is_never_written_after_create(): void
     {
         $connector = $this->connector($this->bundles());
-        $this->enableCategory($connector, true);
+        $this->enableCategory($connector, false); // ungrouped: one product per row
         (new SupplierCatalogSync())->sync($connector);
 
-        $eleven = $this->allVariations()->firstWhere('external_id', 'quota:11');
-        $eleven->ignore_supplier_availability = true;
+        // Admin switches an AVAILABLE row off.
+        $eleven = $this->products()->firstWhere('external_id', 'quota:11');
+        $eleven->is_active = 0;
         $eleven->save();
+        $this->variations($eleven)->first()->update(['is_active' => 0]);
 
-        // 11 GB and 45 GB both go out of stock at the supplier.
+        // 45 GB goes out of stock at the supplier.
         $connector->catalog = [
             $this->dto('5.5', '5.5 GB', 6.0),
-            $this->dto('11', '11 GB', 10.0, false),
+            $this->dto('11', '11 GB', 10.0),
             $this->dto('45', '45 GB', 20.0, false),
         ];
         (new SupplierCatalogSync())->sync($connector);
 
-        $byId = $this->allVariations()->keyBy('external_id');
-        $this->assertSame(1, (int) $byId['quota:11']->is_active, 'the overridden row stays active');
-        $this->assertSame(0, (int) $byId['quota:11']->supplier_available, 'but the feed value is still recorded');
-        $this->assertSame(0, (int) $byId['quota:45']->is_active, 'a sibling without the override still follows the feed');
-        $this->assertSame(1, (int) $byId['quota:5.5']->is_active);
-        $this->assertSame(1, (int) $byId['quota:5.5']->supplier_available);
-    }
+        // Admin switches that OUT-OF-STOCK row on anyway.
+        $fortyFive = $this->products()->firstWhere('external_id', 'quota:45');
+        $fortyFive->is_active = 1;
+        $fortyFive->save();
+        $this->variations($fortyFive)->first()->update(['is_active' => 1]);
 
-    public function test_a_product_level_override_covers_every_variation(): void
-    {
-        $connector = $this->connector($this->bundles());
-        $this->enableCategory($connector, true);
+        // Re-sync: neither admin decision may move.
         (new SupplierCatalogSync())->sync($connector);
 
-        $product = $this->products()->first();
-        $product->ignore_supplier_availability = true;
-        $product->save();
+        $eleven = $eleven->fresh();
+        $this->assertSame(0, (int) $eleven->is_active, 'admin turned an available row off — the sync must never turn it back on');
 
-        $connector->catalog = array_map(
-            fn (SupplierProduct $dto) => $this->dto(str_replace('quota:', '', $dto->externalId), $dto->name, $dto->unitCost, false),
-            $this->bundles()
+        $fortyFive = $fortyFive->fresh();
+        $this->assertSame(1, (int) $fortyFive->is_active, 'admin turned an out-of-stock row on — the sync must never turn it back off');
+        $this->assertSame(Product::SUPPLIER_OUT_OF_STOCK, $fortyFive->supplier_status);
+        $this->assertFalse(
+            Product::sellable()->whereKey($fortyFive->id)->exists(),
+            'on but out of stock is still not sellable'
         );
+
+        // Restock — sellable again with zero admin action.
+        $connector->catalog = $this->bundles();
         (new SupplierCatalogSync())->sync($connector);
 
-        $this->assertCount(3, $this->allVariations()->where('is_active', 1));
-        $product = $product->fresh();
-        $this->assertSame(1, (int) $product->is_active, 'the grouped product follows its (still active) variations');
-        $this->assertSame(0, (int) $product->supplier_available, 'no row was available this run');
+        $fortyFive = $fortyFive->fresh();
+        $this->assertSame(1, (int) $fortyFive->is_active);
+        $this->assertSame(Product::SUPPLIER_AVAILABLE, $fortyFive->supplier_status);
+        $this->assertTrue(Product::sellable()->whereKey($fortyFive->id)->exists());
     }
 
-    public function test_a_withdrawn_row_is_deactivated_despite_the_override(): void
-    {
-        $connector = $this->connector($this->bundles());
-        $this->enableCategory($connector, true);
-        (new SupplierCatalogSync())->sync($connector);
-
-        $eleven = $this->allVariations()->firstWhere('external_id', 'quota:11');
-        $eleven->ignore_supplier_availability = true;
-        $eleven->save();
-
-        // Gone from the feed entirely — nothing to order any more, override or not.
-        $connector->catalog = [$this->dto('5.5', '5.5 GB', 6.0), $this->dto('45', '45 GB', 20.0)];
-        (new SupplierCatalogSync())->sync($connector);
-
-        $this->assertSame(0, (int) $eleven->fresh()->is_active);
-    }
-
-    public function test_import_excluded_beats_the_override(): void
-    {
-        $connector = $this->connector($this->bundles());
-        $this->enableCategory($connector, true);
-        (new SupplierCatalogSync())->sync($connector);
-
-        $product = $this->products()->first();
-        $product->import_excluded = true;
-        $product->ignore_supplier_availability = true;
-        $product->save();
-
-        (new SupplierCatalogSync())->sync($connector);
-
-        $this->assertCount(0, $this->allVariations()->where('is_active', 1));
-        $this->assertSame(0, (int) $product->fresh()->is_active);
-    }
-
-    public function test_ungrouped_override_keeps_product_and_its_variation_active(): void
+    /** Name/description/product_type_id are admin-owned the same way is_active is. */
+    public function test_admin_name_description_and_type_survive_a_sync(): void
     {
         $connector = $this->connector($this->bundles());
         $this->enableCategory($connector, false);
         (new SupplierCatalogSync())->sync($connector);
 
-        $eleven = $this->products()->firstWhere('external_id', 'quota:11');
-        $this->assertSame(1, (int) $eleven->supplier_available, 'the feed value is recorded on the product too');
-        $eleven->ignore_supplier_availability = true;
-        $eleven->save();
+        $product = $this->products()->firstWhere('external_id', 'quota:11');
+        $variation = $this->variations($product)->first();
 
-        $connector->catalog = [
-            $this->dto('5.5', '5.5 GB', 6.0),
-            $this->dto('11', '11 GB', 10.0, false),
-            $this->dto('45', '45 GB', 20.0, false),
-        ];
+        $product->product_type_id = 2;
+        $product->name = 'Admin Renamed Product';
+        $product->description = 'Admin product description';
+        $product->save();
+
+        $variation->name = 'Admin Renamed Variation';
+        $variation->description = 'Admin variation description';
+        $variation->save();
+
+        // The feed still reports its own name/type on the next run.
         (new SupplierCatalogSync())->sync($connector);
 
-        $eleven = $eleven->fresh();
-        $this->assertSame(1, (int) $eleven->is_active);
-        $this->assertSame(0, (int) $eleven->supplier_available);
-        $this->assertSame(1, (int) $this->variations($eleven)->first()->is_active);
+        $this->assertSame(2, (int) $product->fresh()->product_type_id);
+        $this->assertSame('Admin Renamed Product', $product->fresh()->name);
+        $this->assertSame('Admin product description', $product->fresh()->description);
+        $this->assertSame('Admin Renamed Variation', $variation->fresh()->name);
+        $this->assertSame('Admin variation description', $variation->fresh()->description);
+    }
 
-        $fortyFive = $this->products()->firstWhere('external_id', 'quota:45');
-        $this->assertSame(0, (int) $fortyFive->is_active, 'no override → follows the feed');
-        $this->assertSame(0, (int) $this->variations($fortyFive)->first()->is_active);
+    public function test_grouped_product_status_rolls_up_from_its_variations(): void
+    {
+        $connector = $this->connector($this->bundles());
+        $this->enableCategory($connector, true);
+        (new SupplierCatalogSync())->sync($connector);
+
+        $product = $this->products()->first();
+        $this->assertSame(Product::SUPPLIER_AVAILABLE, $product->fresh()->supplier_status, 'any row available → available');
+
+        // Every row out of stock, but still listed → out_of_stock, not withdrawn.
+        $connector->catalog = array_map(
+            fn (SupplierProduct $dto) => $this->dto(str_replace('quota:', '', $dto->externalId), $dto->name, $dto->unitCost, false),
+            $this->bundles()
+        );
+        (new SupplierCatalogSync())->sync($connector);
+        $this->assertSame(Product::SUPPLIER_OUT_OF_STOCK, $product->fresh()->supplier_status);
+
+        // Every row drops off the feed entirely → withdrawn.
+        $connector->catalog = [];
+        (new SupplierCatalogSync())->sync($connector);
+        $this->assertSame(Product::SUPPLIER_WITHDRAWN, $product->fresh()->supplier_status);
+
+        // One size comes back — the product follows it straight back to available.
+        $connector->catalog = [$this->dto('11', '11 GB', 10.0)];
+        (new SupplierCatalogSync())->sync($connector);
+        $this->assertSame(Product::SUPPLIER_AVAILABLE, $product->fresh()->supplier_status);
     }
 
     // ---------------------------------------------------------------- helpers

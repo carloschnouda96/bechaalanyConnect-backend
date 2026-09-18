@@ -57,28 +57,52 @@ class Product extends Model  implements TranslatableContract
     use \App\Concerns\HidesExtraAttributes;
 
     /**
-     * Merged into the regenerated `$hidden = ['translations']`. Keeps supplier
-     * linkage + our margin out of public API responses.
+     * `supplier_status` values. NULL means "not supplier-managed" (a platform
+     * product) and is treated the same as AVAILABLE by sellable().
      *
-     * `supplier_available` is deliberately NOT hidden — the storefront reads it to
-     * show an out-of-stock notice on a row an admin overrode with
-     * ignore_supplier_availability. `ignore_supplier_availability` itself is an
-     * admin-only control and stays hidden, same as import_excluded.
+     * See SupplierCatalogSync's class docblock for the full ownership model:
+     * `is_active` is admin-owned (never written by the sync past creation);
+     * `supplier_status` is sync-owned (never written by the CMS — read-only
+     * field); "sellable" is derived from both at read time and stored nowhere.
+     */
+    public const SUPPLIER_AVAILABLE = 'available';
+    public const SUPPLIER_OUT_OF_STOCK = 'out_of_stock';
+    public const SUPPLIER_WITHDRAWN = 'withdrawn';
+
+    /**
+     * Merged into the regenerated `$hidden = ['translations']`. Keeps supplier
+     * linkage + our margin out of public API responses. `supplier_status` is
+     * an internal sync signal, not something the storefront needs — filtering
+     * on it happens server-side via sellable(), so it stays hidden too.
      */
     protected $extraHidden = [
         'external_source',
         'external_id',
         'profit_percentage',
-        'import_excluded',
-        'ignore_supplier_availability',
+        'supplier_status',
     ];
 
     protected $casts = [
         'profit_percentage' => 'decimal:2',
-        'import_excluded' => 'boolean',
-        'ignore_supplier_availability' => 'boolean',
-        'supplier_available' => 'boolean',
     ];
+
+    /**
+     * A product the storefront may show: the admin has switched it on AND (it
+     * isn't supplier-managed OR the supplier currently has it in stock).
+     *
+     * This is the ONE place "can we sell this" is decided for products — every
+     * public listing/search/detail query should use this instead of a bare
+     * `is_active` check, so admin intent and supplier stock combine the same
+     * way everywhere.
+     */
+    public function scopeSellable($query)
+    {
+        return $query->where('is_active', 1)
+            ->where(function ($q) {
+                $q->whereNull('supplier_status')
+                    ->orWhere('supplier_status', self::SUPPLIER_AVAILABLE);
+            });
+    }
 
     public function variations()
     {
