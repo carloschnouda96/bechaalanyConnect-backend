@@ -46,6 +46,16 @@ use Illuminate\Support\Str;
  *     un-hides itself on restock, with no admin action either way; a withdrawn
  *     row hides itself permanently regardless of `is_active`, because there is
  *     nothing left to fulfil an order against.
+ *   - `products_variations.price` is SYNC-OWNED by default (`cost_price x
+ *     product's profit%`, recomputed on every upsert and by
+ *     `Product::recalculateSupplierPrices()`) UNTIL an admin edits it
+ *     directly, at which point `ProductsVariationObserver` sets
+ *     `manual_price = 1` and it becomes ADMIN-OWNED — the sync then keeps
+ *     `cost_price`/`external_price` current but never writes `price` again
+ *     for that row. Both writers guard their own saves with
+ *     `ProductsVariation::applyingSystemPricing()` so the observer can tell
+ *     a sync-driven price update apart from an admin one. There is
+ *     currently no CMS control to release the lock once set.
  *
  * `products.import_excluded`'s only real job — "keep this off even though the
  * supplier offers it" — is simply `is_active = 0` under this model, so it (and
@@ -404,17 +414,22 @@ class SupplierCatalogSync
 
         $profit = $product->effectiveProfitPercentage();
         $newPrice = ProductsVariation::computeSellingPrice($cost, $profit);
-        $priceChanged = abs((float) $variation->price - $newPrice) > 0.0001
+        // manual_price ("Price" locked, see ProductsVariationObserver): an admin
+        // edited this variation's price directly, so cost keeps syncing but price
+        // is theirs from now on.
+        $priceChanged = (!$variation->manual_price && abs((float) $variation->price - $newPrice) > 0.0001)
             || abs((float) $variation->external_price - $cost) > 0.0001;
 
         $variation->cost_price = $cost;
         $variation->external_price = $cost;
-        $variation->price = $newPrice;
+        if (!$variation->manual_price) {
+            $variation->price = $newPrice;
+        }
         $variation->external_type = $dto->externalType;
         $variation->external_qty_values = $this->normalizeQtyValues($dto->qtyValues);
         $variation->supplier_status = $dto->available ? Product::SUPPLIER_AVAILABLE : Product::SUPPLIER_OUT_OF_STOCK;
         $variation->cms_draft_flag = 0;
-        $variation->save();
+        ProductsVariation::applyingSystemPricing(fn () => $variation->save());
 
         return ['created' => $isNew, 'price_changed' => $priceChanged];
     }

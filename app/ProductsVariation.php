@@ -68,7 +68,31 @@ class ProductsVariation extends Model  implements TranslatableContract
     protected $casts = [
         'unit_amount' => 'integer',
         'external_qty_values' => 'array',
+        'manual_price' => 'boolean',
     ];
+
+    /**
+     * Guards SupplierCatalogSync::upsertVariation() / Product::recalculateSupplierPrices()
+     * writes so ProductsVariationObserver doesn't mistake the sync's own price
+     * update for an admin edit and lock the row. See that observer's docblock.
+     */
+    private static bool $applyingSystemPricing = false;
+
+    public static function applyingSystemPricing(callable $callback)
+    {
+        $previous = self::$applyingSystemPricing;
+        self::$applyingSystemPricing = true;
+        try {
+            return $callback();
+        } finally {
+            self::$applyingSystemPricing = $previous;
+        }
+    }
+
+    public static function isApplyingSystemPricing(): bool
+    {
+        return self::$applyingSystemPricing;
+    }
 
     /**
      * A variation the storefront may sell: this row is switched on AND (it

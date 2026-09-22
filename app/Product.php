@@ -135,7 +135,9 @@ class Product extends Model  implements TranslatableContract
      * product (supplier_categories.group_as_single_product) can hold hand-added
      * variations alongside the imported ones. Those are priced by an admin, often
      * with a cost_price of their own, and editing the product's markup must not
-     * silently overwrite them.
+     * silently overwrite them. Also skips any variation with `manual_price` set —
+     * an admin took that one row's price over by editing it directly in the CMS
+     * (see ProductsVariationObserver); a markup edit must not revert that either.
      */
     public function recalculateSupplierPrices(): int
     {
@@ -147,6 +149,9 @@ class Product extends Model  implements TranslatableContract
             ->whereNotNull('external_id')
             ->get();
         foreach ($variations as $variation) {
+            if ($variation->manual_price) {
+                continue;
+            }
             $cost = $variation->cost_price ?? $variation->external_price;
             if ($cost === null) {
                 continue;
@@ -154,7 +159,7 @@ class Product extends Model  implements TranslatableContract
             $newPrice = ProductsVariation::computeSellingPrice((float) $cost, $pct);
             if (abs((float) $variation->price - $newPrice) > 0.0001) {
                 $variation->price = $newPrice;
-                $variation->save();
+                ProductsVariation::applyingSystemPricing(fn () => $variation->save());
                 $updated++;
             }
         }
