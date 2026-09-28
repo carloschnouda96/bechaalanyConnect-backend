@@ -91,9 +91,6 @@ class SchemaManifest
             ],
 
             'products' => [
-                'columns' => [
-                    'profit_percentage' => ['type' => 'decimal(8,2)', 'null' => true],
-                ],
                 'indexes' => [
                     'products_external_source_id_index' => ['columns' => ['external_source', 'external_id']],
                 ],

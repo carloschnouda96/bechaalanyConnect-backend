@@ -17,9 +17,9 @@ use Tests\TestCase;
  * `cost_price x profit%` into it on every run and on every profit-% edit — so an
  * admin's direct edit "re-showed the price imported" a short time later. This pins
  * the fix: editing Price locks it (`manual_price`, set by
- * App\Observers\ProductsVariationObserver), and once locked neither the sync nor
- * a profit-% edit (Product::recalculateSupplierPrices()) writes Price again —
- * Cost price keeps syncing regardless.
+ * App\Observers\ProductsVariationObserver), and once locked the sync never writes
+ * Price again — Cost price keeps syncing regardless. The one way back is editing
+ * that variation's profit %, which reprices from cost and releases the lock.
  */
 class ManualPriceLockTest extends TestCase
 {
@@ -35,7 +35,7 @@ class ManualPriceLockTest extends TestCase
         $product = $this->product();
         $variation = $this->variation($product);
 
-        $initialPrice = ProductsVariation::computeSellingPrice(10.0, $product->effectiveProfitPercentage());
+        $initialPrice = ProductsVariation::computeSellingPrice(10.0, $variation->effectiveProfitPercentage());
         $this->assertEqualsWithDelta($initialPrice, (float) $variation->price, 0.001);
         $this->assertFalse((bool) $variation->manual_price);
 
@@ -60,7 +60,7 @@ class ManualPriceLockTest extends TestCase
         $this->assertTrue((bool) $variation->manual_price);
     }
 
-    public function test_profit_percentage_edit_reprices_only_the_unlocked_variations(): void
+    public function test_profit_percentage_edit_reprices_and_unlocks_only_that_variation(): void
     {
         $connector = $this->connector([
             $this->dto('1', 'Bundle One', 10.0),
@@ -71,18 +71,28 @@ class ManualPriceLockTest extends TestCase
 
         $product = $this->product();
         $locked = $this->variationByExternalId($product, 'quota:1');
-        $unlocked = $this->variationByExternalId($product, 'quota:2');
+        $sibling = $this->variationByExternalId($product, 'quota:2');
+        $siblingPrice = (float) $sibling->price;
 
         $locked->price = 50.00;
         $locked->save();
         $this->assertTrue((bool) $locked->fresh()->manual_price);
 
-        $product->profit_percentage = 30;
-        $product->save(); // ProductObserver -> recalculateSupplierPrices()
+        // The CMS edit form submits Price and Profit % together; profit wins.
+        $locked->refresh();
+        $locked->profit_percentage = 30;
+        $locked->price = 60.00;
+        $locked->save();
 
-        $expected = ProductsVariation::computeSellingPrice(10.0, 30);
-        $this->assertEqualsWithDelta(50.00, (float) $locked->fresh()->price, 0.001, 'a locked price must survive a profit% edit');
-        $this->assertEqualsWithDelta($expected, (float) $unlocked->fresh()->price, 0.001, 'the unlocked sibling still reprices');
+        $locked->refresh();
+        $this->assertEqualsWithDelta(ProductsVariation::computeSellingPrice(10.0, 30), (float) $locked->price, 0.001);
+        $this->assertFalse((bool) $locked->manual_price, 'setting profit % hands Price back to the sync');
+        $this->assertEqualsWithDelta($siblingPrice, (float) $sibling->fresh()->price, 0.001, 'a sibling variation keeps its own markup');
+
+        // Released: the next sync tracks the new cost at this variation's 30%.
+        $connector->catalog = [$this->dto('1', 'Bundle One', 20.0), $this->dto('2', 'Bundle Two', 10.0)];
+        (new SupplierCatalogSync())->sync($connector);
+        $this->assertEqualsWithDelta(ProductsVariation::computeSellingPrice(20.0, 30), (float) $locked->fresh()->price, 0.001);
     }
 
     // ------------------------------------------------------------------ helpers

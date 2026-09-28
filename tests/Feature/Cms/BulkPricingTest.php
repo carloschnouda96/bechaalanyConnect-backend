@@ -70,7 +70,7 @@ class BulkPricingTest extends TestCase
             ->put($this->url(), ['ids' => (string) $product->id, 'action' => 'set_profit', 'value' => 20])
             ->assertRedirect();
 
-        $this->assertEquals(20.00, (float) $product->fresh()->profit_percentage);
+        $this->assertEquals(20.00, (float) $variation->fresh()->profit_percentage, 'profit % lives on the variation');
         $this->assertEquals(
             ProductsVariation::computeSellingPrice(5.00, 20.0),
             (float) $variation->fresh()->price,
@@ -116,8 +116,11 @@ class BulkPricingTest extends TestCase
         $this->assertEquals(11.00, (float) $variation->fresh()->price);
     }
 
-    /** A hand-added variation on a supplier product is priced by a human, not the sync. */
-    public function test_setting_profit_leaves_a_hand_added_variation_alone(): void
+    /**
+     * Profit % is per variation, and selecting a product sets it on every one of them —
+     * a hand-added variation included, as long as it has a cost to price from.
+     */
+    public function test_setting_profit_applies_to_every_variation_with_a_cost(): void
     {
         [$product, $supplierVariation] = $this->product('yassen', 5.00, 1.00);
 
@@ -130,12 +133,20 @@ class BulkPricingTest extends TestCase
             'external_id' => null,
         ]);
 
+        $noCost = ProductsVariation::create([
+            'slug' => 'nocost-' . uniqid(),
+            'product_id' => $product->id,
+            'price' => 42.00,
+            'is_active' => 1,
+        ]);
+
         $this->actingAs($this->admin(), 'admin')
             ->put($this->url(), ['ids' => (string) $product->id, 'action' => 'set_profit', 'value' => 20]);
 
         $this->assertEquals(6.00, (float) $supplierVariation->fresh()->price);
-        $this->assertEquals(42.00, (float) $manual->fresh()->price,
-            'recalculateSupplierPrices() deliberately skips variations with no external_id');
+        $this->assertEquals(6.00, (float) $manual->fresh()->price);
+        $this->assertEquals(20.00, (float) $noCost->fresh()->profit_percentage);
+        $this->assertEquals(42.00, (float) $noCost->fresh()->price, 'no cost recorded → nothing to derive a price from');
     }
 
     public function test_the_listing_previews_prices_without_writing(): void

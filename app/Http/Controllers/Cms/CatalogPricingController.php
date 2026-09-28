@@ -14,14 +14,15 @@ use Illuminate\Validation\Rule;
 /**
  * Repricing a batch of products in one pass.
  *
- * Before this, changing margin meant opening each product to edit its profit %, or each
- * variation to edit its price — one record at a time, with no way to see what the
- * catalog's margins currently were.
+ * Before this, changing margin meant opening each variation to edit its profit % or
+ * its price — one record at a time, with no way to see what the catalog's margins
+ * currently were.
  *
- * All arithmetic goes through ProductsVariation::computeSellingPrice(), the same
- * function the supplier syncs use. There is no second copy of the markup formula here:
- * setting profit % on a supplier product writes only products.profit_percentage, and
- * App\Observers\ProductObserver pushes the recomputed prices down to the variations.
+ * Profit % lives on the variation. Selecting a product here sets the same profit % on
+ * every one of its variations. There is no second copy of the markup formula: this
+ * writes only products_variations.profit_percentage, and
+ * App\Observers\ProductsVariationObserver recomputes each price through
+ * ProductsVariation::computeSellingPrice() — the same function the supplier syncs use.
  */
 class CatalogPricingController extends Controller
 {
@@ -66,14 +67,12 @@ class CatalogPricingController extends Controller
         $rows = $products->getCollection()->map(function (Product $product) use ($default, $previewProfit) {
             $variations = $product->variations()
                 ->withoutGlobalScope('cms_draft_flag')
-                ->get(['id', 'price', 'cost_price', 'external_id']);
+                ->get(['id', 'price', 'cost_price', 'external_id', 'profit_percentage']);
 
             $costs = $variations->pluck('cost_price')->filter(fn ($c) => $c !== null)->map(fn ($c) => (float) $c);
             $prices = $variations->pluck('price')->map(fn ($p) => (float) $p);
 
-            $effective = $product->profit_percentage !== null
-                ? (float) $product->profit_percentage
-                : $default;
+            $profits = $variations->map(fn ($v) => $v->profit_percentage !== null ? (float) $v->profit_percentage : $default);
 
             // What the selected markup would produce, using the one shared formula.
             $projected = $previewProfit === null
@@ -86,8 +85,9 @@ class CatalogPricingController extends Controller
                 'name' => optional($product->translate(app()->getLocale()))->name ?: $product->slug,
                 'source' => $product->external_source,
                 'is_active' => (int) $product->is_active,
-                'profit' => $product->profit_percentage,
-                'effective' => $effective,
+                'profit_range' => $this->range($profits),
+                // At least one variation has no profit % of its own and inherits the default.
+                'inherits_default' => $variations->contains(fn ($v) => $v->profit_percentage === null),
                 'variations' => $variations->count(),
                 'cost_range' => $this->range($costs),
                 'price_range' => $this->range($prices),
@@ -158,34 +158,29 @@ class CatalogPricingController extends Controller
         return back()->with('success', $this->summary($data['action'], $changed, $skipped));
     }
 
-    /** @return int 1 if the product changed */
+    /**
+     * Set one profit % on every variation of the product. ProductsVariationObserver
+     * reprices each one from its cost (and releases a manual price lock); a variation
+     * with no cost recorded keeps its hand-set price.
+     *
+     * @return int number of variations changed
+     */
     private function setProfit(Product $product, float $percentage): int
     {
-        if ($product->profit_percentage !== null
-            && abs((float) $product->profit_percentage - $percentage) < 0.0001) {
-            return 0;
-        }
+        $changed = 0;
 
-        $product->profit_percentage = $percentage;
-        // ProductObserver::updated() repricess the supplier variations from cost.
-        $product->save();
-
-        // Manual products have no observer hook (deliberately — recalculateSupplierPrices
-        // skips variations with no external_id so hand-set prices survive a markup edit).
-        // Repricing them here is the explicit thing the admin asked for by selecting the
-        // row, and only where a cost is actually recorded to compute from.
-        if (blank($product->external_source)) {
-            foreach ($product->variations()->withoutGlobalScope('cms_draft_flag')->get() as $variation) {
-                if ($variation->cost_price === null) {
-                    continue;
-                }
-
-                $variation->price = ProductsVariation::computeSellingPrice((float) $variation->cost_price, $percentage);
-                $variation->save();
+        foreach ($product->variations()->withoutGlobalScope('cms_draft_flag')->get() as $variation) {
+            if ($variation->profit_percentage !== null
+                && abs((float) $variation->profit_percentage - $percentage) < 0.0001) {
+                continue;
             }
+
+            $variation->profit_percentage = $percentage;
+            $variation->save();
+            $changed++;
         }
 
-        return 1;
+        return $changed;
     }
 
     /** @return int number of variations repriced */
@@ -210,7 +205,7 @@ class CatalogPricingController extends Controller
 
     private function summary(string $action, int $changed, int $skipped): string
     {
-        $what = $action === 'set_profit' ? 'product(s) repriced' : 'variation price(s) adjusted';
+        $what = $action === 'set_profit' ? 'variation(s) repriced' : 'variation price(s) adjusted';
         $message = "{$changed} {$what}.";
 
         if ($skipped) {

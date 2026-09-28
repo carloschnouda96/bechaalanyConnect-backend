@@ -62,7 +62,7 @@
         </form>
 
         <p class="text-muted mb-0">
-            Default profit when a product has none of its own: <strong>{{ number_format($default_profit, 2) }}%</strong>
+            Default profit when a variation has none of its own: <strong>{{ number_format($default_profit, 2) }}%</strong>
             (Fixed Settings). Enter a <strong>preview profit %</strong> above to see the prices it would produce
             before you apply anything.
         </p>
@@ -92,8 +92,9 @@
                 </div>
             </div>
             <p class="text-muted mb-0">
-                <strong>Set profit %</strong> writes the markup and recomputes selling price from cost — the same
-                formula the supplier syncs use. <strong>Adjust prices by %</strong> multiplies the current price and
+                <strong>Set profit %</strong> writes the markup on every variation of the selected products and
+                recomputes each selling price from cost — the same formula the supplier syncs use. To give one
+                variation its own markup, edit its Profit % on the Products Variations page. <strong>Adjust prices by %</strong> multiplies the current price and
                 is refused for supplier products, whose price is derived and would be overwritten at the next sync.
             </p>
         </div>
@@ -135,10 +136,12 @@
                                 </td>
                                 <td class="text-right">{{ $row['variations'] }}</td>
                                 <td class="text-right">
-                                    @if ($row['profit'] === null)
-                                        <span class="text-muted" title="Inherited from Fixed Settings">{{ number_format($row['effective'], 2) }}*</span>
+                                    @if ($row['profit_range'] === null)
+                                        <span class="text-muted">—</span>
+                                    @elseif ($row['inherits_default'])
+                                        <span class="text-muted" title="* at least one variation inherits the default from Fixed Settings">{{ $money($row['profit_range']) }}*</span>
                                     @else
-                                        {{ number_format((float) $row['profit'], 2) }}
+                                        {{ $money($row['profit_range']) }}
                                     @endif
                                 </td>
                                 <td class="text-right">{{ $money($row['cost_range']) }}</td>

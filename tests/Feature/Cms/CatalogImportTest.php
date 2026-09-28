@@ -166,6 +166,22 @@ class CatalogImportTest extends TestCase
         $this->assertSame('Renamed AR', $fresh->translate('ar')->name);
     }
 
+    public function test_profit_percentage_is_imported_per_variation_and_reprices_from_cost(): void
+    {
+        $subcategory = $this->subcategory();
+        [$product, $variation] = $this->manualProduct($subcategory);
+
+        $rows = $this->parse($this->csv([
+            $this->rowFor($product, $variation, ['profit_percentage' => '40']),
+        ]));
+
+        (new CatalogImporter())->apply($rows);
+
+        $fresh = $variation->fresh();
+        $this->assertEquals(40.00, (float) $fresh->profit_percentage);
+        $this->assertEquals(7.00, (float) $fresh->price, 'cost 5.00 at 40%');
+    }
+
     /** The rule the whole importer is built around. */
     public function test_a_supplier_product_is_skipped_and_left_byte_identical(): void
     {

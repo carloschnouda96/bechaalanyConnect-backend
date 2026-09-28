@@ -59,7 +59,7 @@ class SupplierCatalogSyncGroupingTest extends TestCase
         $this->assertSame(['5.5 GB', '11 GB', '45 GB'], $variations->pluck('name')->all());
 
         // price = cost * (1 + profit%), the one formula, unchanged by grouping.
-        $expected = ProductsVariation::computeSellingPrice(10.0, $product->effectiveProfitPercentage());
+        $expected = ProductsVariation::computeSellingPrice(10.0, $variations->firstWhere('external_id', 'quota:11')->effectiveProfitPercentage());
         $this->assertEqualsWithDelta($expected, (float) $variations->firstWhere('external_id', 'quota:11')->price, 0.001);
 
         $this->assertSame(3, $summary['created']);
@@ -210,12 +210,6 @@ class SupplierCatalogSyncGroupingTest extends TestCase
         $manual->refresh();
         $this->assertSame(1, (int) $manual->is_active, 'a variation with no external_id is the admin\'s, not the sync\'s');
         $this->assertEqualsWithDelta(99.0, (float) $manual->price, 0.001);
-
-        // …and the product markup must not reprice it either.
-        $product->profit_percentage = 42;
-        $product->save();
-        $product->recalculateSupplierPrices();
-        $this->assertEqualsWithDelta(99.0, (float) $manual->fresh()->price, 0.001);
     }
 
     public function test_a_variation_hand_moved_onto_a_non_supplier_product_is_reclaimed(): void

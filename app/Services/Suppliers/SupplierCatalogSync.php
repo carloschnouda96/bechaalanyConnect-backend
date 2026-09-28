@@ -46,16 +46,19 @@ use Illuminate\Support\Str;
  *     un-hides itself on restock, with no admin action either way; a withdrawn
  *     row hides itself permanently regardless of `is_active`, because there is
  *     nothing left to fulfil an order against.
+ *   - `products_variations.profit_percentage` is ADMIN-OWNED and never
+ *     written by this sync; NULL falls back to Fixed Settings'
+ *     `default_profit_percentage` (`ProductsVariation::effectiveProfitPercentage()`).
  *   - `products_variations.price` is SYNC-OWNED by default (`cost_price x
- *     product's profit%`, recomputed on every upsert and by
- *     `Product::recalculateSupplierPrices()`) UNTIL an admin edits it
- *     directly, at which point `ProductsVariationObserver` sets
+ *     the variation's profit%`, recomputed on every upsert) UNTIL an admin
+ *     edits it directly, at which point `ProductsVariationObserver` sets
  *     `manual_price = 1` and it becomes ADMIN-OWNED — the sync then keeps
  *     `cost_price`/`external_price` current but never writes `price` again
- *     for that row. Both writers guard their own saves with
+ *     for that row. The sync guards its own saves with
  *     `ProductsVariation::applyingSystemPricing()` so the observer can tell
- *     a sync-driven price update apart from an admin one. There is
- *     currently no CMS control to release the lock once set.
+ *     a sync-driven price update apart from an admin one. Editing the
+ *     variation's profit % releases the lock: the observer reprices from
+ *     cost and clears `manual_price`.
  *
  * `products.import_excluded`'s only real job — "keep this off even though the
  * supplier offers it" — is simply `is_active = 0` under this model, so it (and
@@ -237,7 +240,6 @@ class SupplierCatalogSync
             $product = new Product();
             $product->external_source = $source;
             $product->external_id = $externalId;
-            $product->profit_percentage = null; // null → global default
             $product->slug = $this->uniqueSlug($name, $externalId, $source);
             // Seeded once, on create only. Most suppliers offer no per-product image
             // (Yassen exposes only a category image; Swift/1xpanel/usharez none at
@@ -342,7 +344,6 @@ class SupplierCatalogSync
             $product = new Product();
             $product->external_source = $source;
             $product->external_id = $externalId;
-            $product->profit_percentage = null; // null → global default
             // Suffixed with the supplier category id, not the synthetic product id —
             // same uniqueness, without "group" turning up in a customer-facing URL.
             $product->slug = $this->uniqueSlug($name, $supplierCategory->external_id, $source);
@@ -412,7 +413,7 @@ class SupplierCatalogSync
                 ->max('ht_pos');
         }
 
-        $profit = $product->effectiveProfitPercentage();
+        $profit = $variation->effectiveProfitPercentage();
         $newPrice = ProductsVariation::computeSellingPrice($cost, $profit);
         // manual_price ("Price" locked, see ProductsVariationObserver): an admin
         // edited this variation's price directly, so cost keeps syncing but price
