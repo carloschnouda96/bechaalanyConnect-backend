@@ -42,6 +42,7 @@ class ProductsVariation extends Model  implements TranslatableContract
 
     use \App\Concerns\HasFullPath;
     use \App\Concerns\HidesExtraAttributes;
+    use \App\Concerns\AppendsToCmsOrder;
 
     /**
      * Merged into the regenerated `$hidden = ['translations']`.

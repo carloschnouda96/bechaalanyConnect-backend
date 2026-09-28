@@ -51,6 +51,7 @@ class Product extends Model  implements TranslatableContract
 
     use \App\Concerns\HasFullPath;
     use \App\Concerns\HidesExtraAttributes;
+    use \App\Concerns\AppendsToCmsOrder;
 
     /**
      * `supplier_status` values. NULL means "not supplier-managed" (a platform

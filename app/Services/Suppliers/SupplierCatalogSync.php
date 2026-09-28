@@ -33,6 +33,9 @@ use Illuminate\Support\Str;
  *     on upsertProduct()/upsertVariation()) — and never again. Same rule for
  *     `product_type_id` and the translated name/description: an admin's edit
  *     is never reverted by a later sync.
+ *   - `ht_pos` (the CMS drag-and-drop order) is ADMIN-OWNED too: a new row is
+ *     appended at the end of the table-wide order (`nextHtPos()`), an existing
+ *     position is never rewritten.
  *   - `supplier_status` (`Product::SUPPLIER_AVAILABLE` / `_OUT_OF_STOCK` /
  *     `_WITHDRAWN`, NULL = not supplier-managed) is SYNC-OWNED and read-only
  *     in the CMS. Written on every upsert from `$dto->available`, and set to
@@ -251,6 +254,8 @@ class SupplierCatalogSync
             // set once, at creation, and never written again by this sync.
             $product->is_active = 1;
             $product->product_type_id = $dto->productTypeId;
+            // Appended to the admin's CMS order; never touched again.
+            $product->ht_pos = Product::nextHtPos();
             $this->setTranslations($product, ['name' => $name, 'description' => '']);
         }
 
@@ -263,7 +268,7 @@ class SupplierCatalogSync
         $product->save();
 
         // Single variation per supplier product.
-        $variation = $this->upsertVariation($product, $dto, $source, false);
+        $variation = $this->upsertVariation($product, $dto, $source);
 
         return [
             'status' => $isNew ? 'created' : 'updated',
@@ -287,7 +292,7 @@ class SupplierCatalogSync
 
         $product = $this->ensureGroupProduct($supplierCategory, $dto, $subcategory, $source);
 
-        $variation = $this->upsertVariation($product, $dto, $source, true);
+        $variation = $this->upsertVariation($product, $dto, $source);
 
         return [
             'status' => $variation['created'] ? 'created' : 'updated',
@@ -355,6 +360,7 @@ class SupplierCatalogSync
             // the same recipient, so they always agree.
             $product->product_type_id = $dto->productTypeId;
             $product->is_active = 1;
+            $product->ht_pos = Product::nextHtPos();
             $this->setTranslations($product, ['name' => $name, 'description' => '']);
         }
 
@@ -379,8 +385,7 @@ class SupplierCatalogSync
     private function upsertVariation(
         Product $product,
         SupplierProduct $dto,
-        string $source,
-        bool $grouped
+        string $source
     ): array {
         $externalId = $dto->externalId;
         $name = trim($dto->name) ?: ('Product ' . $externalId);
@@ -402,15 +407,15 @@ class SupplierCatalogSync
 
         $variation->product_id = $product->id;
 
-        // The storefront orders the dropdown by ht_pos, and a synced row is
-        // otherwise NULL — which leaves the order to MySQL. Appending gives a
-        // stable feed order that an admin can still re-drag in the CMS. Applied to
-        // re-parented rows too, or a category grouped after its first import would
-        // keep half its dropdown unordered.
-        if ($grouped && $variation->ht_pos === null) {
-            $variation->ht_pos = 1 + (int) ProductsVariation::withoutGlobalScope('cms_draft_flag')
-                ->where('product_id', $product->id)
-                ->max('ht_pos');
+        // ht_pos is admin-owned (the CMS drag-and-drop order): assigned once, at
+        // the END of the table-wide order, and never rewritten — so an import only
+        // appends and the admin's order survives every sync. The max is global,
+        // not per-product, because the CMS order is global; a per-product max
+        // collided with other products' positions and the ties shuffled. Applied
+        // to re-parented rows still at NULL too, or a category grouped after its
+        // first import would keep half its dropdown unordered.
+        if ($variation->ht_pos === null) {
+            $variation->ht_pos = ProductsVariation::nextHtPos();
         }
 
         $profit = $variation->effectiveProfitPercentage();

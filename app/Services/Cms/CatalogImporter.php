@@ -325,6 +325,8 @@ class CatalogImporter
             $product->subcategory_id = $subcategory->id;
             $product->product_type_id = $this->cast($row['product_type_id'] ?? null, 'int') ?? 1;
             $product->is_active = $this->cast($row['product_is_active'] ?? null, 'bool') ?? 0;
+            // Appended to the admin's CMS order; an existing position is never rewritten.
+            $product->ht_pos = Product::nextHtPos();
             $created = true;
         } elseif (filled($row['subcategory_slug'] ?? null)) {
             $subcategory = $this->resolveSubcategory($row);
@@ -364,6 +366,7 @@ class CatalogImporter
             $variation->slug = $variationSlug;
             $variation->is_active = $this->cast($row['variation_is_active'] ?? null, 'bool') ?? 0;
             $variation->price = 0;
+            $variation->ht_pos = ProductsVariation::nextHtPos();
         }
 
         $variation->product_id = $product->id;
