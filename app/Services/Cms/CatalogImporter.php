@@ -19,7 +19,7 @@ use Illuminate\Support\Facades\DB;
  * THE RULE THAT MATTERS: a product with an `external_source` is owned by its supplier
  * connector. Its name, price and availability are re-derived on every `{supplier}:sync`
  * from the supplier's own feed, and its selling price is recomputed from cost ×
- * profit% by Product::recalculateSupplierPrices(). Editing one here would be silently
+ * profit% by the sync (ProductsVariation::effectiveProfitPercentage()). Editing one here would be silently
  * reverted at the next sync, or would fight the markup engine until it was. Those rows
  * are reported as skipped, never written, and never created.
  */
@@ -35,12 +35,12 @@ class CatalogImporter
     private const PRODUCT_COLUMNS = [
         'product_type_id' => 'int',
         'product_is_active' => 'bool',
-        'profit_percentage' => 'decimal',
     ];
 
     private const VARIATION_COLUMNS = [
         'cost_price' => 'float',
         'price' => 'decimal',
+        'profit_percentage' => 'decimal',
         'unit_amount' => 'int',
         'variation_is_active' => 'bool',
     ];
@@ -49,12 +49,12 @@ class CatalogImporter
     private const PRODUCT_ATTRIBUTE = [
         'product_type_id' => 'product_type_id',
         'product_is_active' => 'is_active',
-        'profit_percentage' => 'profit_percentage',
     ];
 
     private const VARIATION_ATTRIBUTE = [
         'cost_price' => 'cost_price',
         'price' => 'price',
+        'profit_percentage' => 'profit_percentage',
         'unit_amount' => 'unit_amount',
         'variation_is_active' => 'is_active',
     ];
@@ -325,6 +325,8 @@ class CatalogImporter
             $product->subcategory_id = $subcategory->id;
             $product->product_type_id = $this->cast($row['product_type_id'] ?? null, 'int') ?? 1;
             $product->is_active = $this->cast($row['product_is_active'] ?? null, 'bool') ?? 0;
+            // Appended to the admin's CMS order; an existing position is never rewritten.
+            $product->ht_pos = Product::nextHtPos();
             $created = true;
         } elseif (filled($row['subcategory_slug'] ?? null)) {
             $subcategory = $this->resolveSubcategory($row);
@@ -364,6 +366,7 @@ class CatalogImporter
             $variation->slug = $variationSlug;
             $variation->is_active = $this->cast($row['variation_is_active'] ?? null, 'bool') ?? 0;
             $variation->price = 0;
+            $variation->ht_pos = ProductsVariation::nextHtPos();
         }
 
         $variation->product_id = $product->id;

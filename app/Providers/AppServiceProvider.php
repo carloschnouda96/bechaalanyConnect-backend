@@ -2,10 +2,8 @@
 
 namespace App\Providers;
 
-use App\Observers\ProductObserver;
 use App\Observers\ProductsVariationObserver;
 use App\Observers\UserCreditsObserver;
-use App\Product;
 use App\ProductsVariation;
 use App\Services\Suppliers\SupplierRegistry;
 use Illuminate\Pagination\Paginator;
@@ -36,10 +34,10 @@ class AppServiceProvider extends ServiceProvider
         // Registered here rather than as a booted() hook inside the model: the
         // hellotree CMS regenerates every model file above its custom-function
         // markers on a page-schema save, which would silently drop the hook.
-        Product::observe(ProductObserver::class);
-
-        // Auto-locks Price against the supplier sync the moment an admin (or any
-        // non-sync code path) edits it directly — see the observer's docblock.
+        //
+        // Reprices a variation when its profit % changes, and otherwise auto-locks
+        // Price against the supplier sync the moment an admin (or any non-sync
+        // code path) edits it directly — see the observer's docblock.
         ProductsVariation::observe(ProductsVariationObserver::class);
 
         // Both User classes map to the `users` table: App\Models\User is the auth

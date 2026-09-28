@@ -42,6 +42,7 @@ class ProductsVariation extends Model  implements TranslatableContract
 
     use \App\Concerns\HasFullPath;
     use \App\Concerns\HidesExtraAttributes;
+    use \App\Concerns\AppendsToCmsOrder;
 
     /**
      * Merged into the regenerated `$hidden = ['translations']`.
@@ -49,6 +50,7 @@ class ProductsVariation extends Model  implements TranslatableContract
      * cost_price is the supplier's unit cost. Leaving it exposed published our
      * margin on the public storefront: ProductController::SingleProduct returns
      * variations unauthenticated, so anyone could derive the markup on every product.
+     * profit_percentage is hidden for the same reason.
      * external_qty_values stays visible — the storefront renders it as preset amounts.
      * supplier_status mirrors Product::$extraHidden — an internal sync signal,
      * filtered on server-side via sellable(), never needed by the client.
@@ -58,6 +60,7 @@ class ProductsVariation extends Model  implements TranslatableContract
         'external_price',
         'external_type',
         'cost_price',
+        'profit_percentage',
         'supplier_status',
     ];
 
@@ -69,10 +72,11 @@ class ProductsVariation extends Model  implements TranslatableContract
         'unit_amount' => 'integer',
         'external_qty_values' => 'array',
         'manual_price' => 'boolean',
+        'profit_percentage' => 'decimal:2',
     ];
 
     /**
-     * Guards SupplierCatalogSync::upsertVariation() / Product::recalculateSupplierPrices()
+     * Guards SupplierCatalogSync::upsertVariation() / ProductsVariationObserver repricing
      * writes so ProductsVariationObserver doesn't mistake the sync's own price
      * update for an admin edit and lock the row. See that observer's docblock.
      */
@@ -126,6 +130,33 @@ class ProductsVariation extends Model  implements TranslatableContract
     public static function computeSellingPrice(float $cost, float $profitPercentage): float
     {
         return round($cost * (1 + ($profitPercentage / 100)), 2);
+    }
+
+    /**
+     * The markup % to apply to this variation's cost, falling back to the global
+     * default in Fixed Settings when no per-variation value is set.
+     */
+    public function effectiveProfitPercentage(): float
+    {
+        if ($this->profit_percentage !== null) {
+            return (float) $this->profit_percentage;
+        }
+        $default = FixedSetting::current()->default_profit_percentage;
+        return (float) ($default ?? 0);
+    }
+
+    /**
+     * The selling price this variation's cost and effective profit % produce, or
+     * null when no cost is recorded (a hand-priced variation) — there is then
+     * nothing to derive a price from, and the caller must leave `price` alone.
+     */
+    public function priceFromCost(): ?float
+    {
+        $cost = $this->cost_price ?? $this->external_price;
+        if ($cost === null) {
+            return null;
+        }
+        return self::computeSellingPrice((float) $cost, $this->effectiveProfitPercentage());
     }
 
     /*
