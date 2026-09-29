@@ -494,6 +494,10 @@ class SupplierCatalogSync
      * Ensure a local Category + Subcategory exist for the supplier category and
      * cache their ids back onto the supplier_categories row.
      *
+     * A subcategory created here for a NON-grouped category is flagged
+     * `show_products_in_category`, so the storefront lists its products directly
+     * on the category page. Caching its id back keeps later syncs on the same row.
+     *
      * @return array{0:Category,1:Subcategory}
      */
     private function ensureLocalTree(SupplierCategory $supplierCategory, string $source): array
@@ -527,6 +531,12 @@ class SupplierCatalogSync
             $subcategory->slug = $this->uniqueSlug($name, 'sub-' . $supplierCategory->external_id, $source);
             $subcategory->image = $supplierCategory->image;
             $subcategory->is_active = 1;
+            // The admin mapped this supplier category to a Category only. The FK
+            // still needs a subcategory to hold the products, but a non-grouped
+            // import should list them directly on the category page, so this one
+            // is hidden as a storefront level. A grouped category keeps a visible
+            // subcategory, and an admin-picked one is never reached here.
+            $subcategory->show_products_in_category = !$supplierCategory->group_as_single_product;
             $subcategory->cms_draft_flag = 0;
             $this->setTranslations($subcategory, ['title' => $name, 'description' => '']);
             $subcategory->save();
