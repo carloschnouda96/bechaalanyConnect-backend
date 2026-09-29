@@ -792,7 +792,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `batch` int(11) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=49 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=53 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `orders`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -903,7 +903,6 @@ CREATE TABLE `products` (
   `external_source` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `external_id` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `supplier_status` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
-  `profit_percentage` decimal(8,2) DEFAULT NULL,
   `ht_pos` int(11) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -915,7 +914,7 @@ CREATE TABLE `products` (
   KEY `products_product_type_id_foreign` (`product_type_id`),
   CONSTRAINT `products_product_type_id_foreign` FOREIGN KEY (`product_type_id`) REFERENCES `product_type` (`id`),
   CONSTRAINT `products_subcategory_id_foreign` FOREIGN KEY (`subcategory_id`) REFERENCES `subcategories` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=351 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=352 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `products_translations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -931,7 +930,7 @@ CREATE TABLE `products_translations` (
   PRIMARY KEY (`id`),
   KEY `translatable_id_1751382638` (`product_id`),
   CONSTRAINT `translatable_id_1751382638` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=701 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=703 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `products_variations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -944,7 +943,9 @@ CREATE TABLE `products_variations` (
   `product_id` int(10) unsigned DEFAULT NULL,
   `is_active` int(11) DEFAULT NULL,
   `price` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `manual_price` tinyint(1) DEFAULT '0',
   `cost_price` double DEFAULT NULL,
+  `profit_percentage` decimal(8,2) DEFAULT NULL,
   `external_id` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `external_price` decimal(20,8) DEFAULT NULL,
   `external_type` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
@@ -1089,6 +1090,7 @@ CREATE TABLE `subcategories` (
   `slug` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `image` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `is_active` int(11) DEFAULT NULL,
+  `show_products_in_category` tinyint(1) DEFAULT '0',
   `category_id` int(10) unsigned DEFAULT NULL,
   `ht_pos` int(11) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,

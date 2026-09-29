@@ -40,5 +40,15 @@ class Subcategory extends Model  implements TranslatableContract
 
     public $appends = ['full_path'];
 
+    // Hides this level on the storefront: its products render on the parent
+    // category page instead. NULL (the CMS re-nulls columns) reads as false.
+    protected $casts = ['show_products_in_category' => 'boolean'];
+
+    public function scopeShownAsLevel(Builder $query): Builder
+    {
+        return $query->where(fn ($q) => $q->whereNull('subcategories.show_products_in_category')
+            ->orWhere('subcategories.show_products_in_category', 0));
+    }
+
     /* End custom functions */
 }

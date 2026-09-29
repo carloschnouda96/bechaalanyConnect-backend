@@ -30,6 +30,9 @@ class ProductController extends Controller
         return response()->json([
             'products' => $products,
             'subcategory' => $subcategory->title,
+            // A hidden level (see SubcategoryController): the storefront redirects
+            // this page to the category page, where these products are listed.
+            'show_products_in_category' => (bool) $subcategory->show_products_in_category,
             'category' => $category->title
         ]);
     }
@@ -56,6 +59,8 @@ class ProductController extends Controller
             'product_variations' => $product_variations,
             'product' => $product,
             'subcategory' => $subcategory->title,
+            // Lets the product page drop the hidden subcategory from its breadcrumb.
+            'show_products_in_category' => (bool) $subcategory->show_products_in_category,
             'category' => $category->title
         ]);
     }
