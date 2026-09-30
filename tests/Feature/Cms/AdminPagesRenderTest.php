@@ -35,7 +35,7 @@ class AdminPagesRenderTest extends TestCase
     /** Custom pages, which live or die by their cms_pages row. */
     private const CUSTOM = [
         'catalog-import',
-        'catalog-pricing',
+        'price-matrix',
         'kyc-queue',
         'supplier-health',
         'deleted-records',
@@ -187,7 +187,7 @@ class AdminPagesRenderTest extends TestCase
         $admin = $this->restrictedAdmin(['orders']);
 
         $this->actingAs($admin, 'admin')
-            ->get($this->url('catalog-pricing'))
+            ->get($this->url('price-matrix'))
             ->assertForbidden();
     }
 

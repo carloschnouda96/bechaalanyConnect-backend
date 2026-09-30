@@ -90,7 +90,7 @@ CREATE TABLE `admins` (
   UNIQUE KEY `admins_email_unique` (`email`),
   KEY `admins_admin_role_id_foreign` (`admin_role_id`),
   CONSTRAINT `admins_admin_role_id_foreign` FOREIGN KEY (`admin_role_id`) REFERENCES `admin_roles` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `banner_swiper`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -246,7 +246,7 @@ CREATE TABLE `cms_pages` (
   UNIQUE KEY `cms_pages_database_table_unique` (`database_table`),
   UNIQUE KEY `cms_pages_route_unique` (`route`),
   UNIQUE KEY `cms_pages_model_name_unique` (`model_name`)
-) ENGINE=InnoDB AUTO_INCREMENT=42 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=43 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `contact_details`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -792,7 +792,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `batch` int(11) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=53 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=58 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `orders`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -827,16 +827,6 @@ CREATE TABLE `orders` (
   CONSTRAINT `orders_users_id_foreign` FOREIGN KEY (`users_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=8 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
-DROP TABLE IF EXISTS `password_reset_tokens`;
-/*!40101 SET @saved_cs_client     = @@character_set_client */;
-/*!50503 SET character_set_client = utf8mb4 */;
-CREATE TABLE `password_reset_tokens` (
-  `email` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `token` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
-  `created_at` timestamp NULL DEFAULT NULL,
-  PRIMARY KEY (`email`)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
-/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `personal_access_tokens`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
@@ -865,14 +855,15 @@ CREATE TABLE `product_price_variations` (
   `products_variations_id` int(10) unsigned DEFAULT NULL,
   `user_types_id` int(10) unsigned DEFAULT NULL,
   `price` decimal(12,2) NOT NULL DEFAULT '0.00',
+  `profit_percentage` decimal(8,2) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
-  KEY `product_price_variations_products_variations_id_foreign` (`products_variations_id`),
+  UNIQUE KEY `product_price_variations_variation_user_type_unique` (`products_variations_id`,`user_types_id`),
   KEY `product_price_variations_user_types_id_foreign` (`user_types_id`),
   CONSTRAINT `product_price_variations_products_variations_id_foreign` FOREIGN KEY (`products_variations_id`) REFERENCES `products_variations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_price_variations_user_types_id_foreign` FOREIGN KEY (`user_types_id`) REFERENCES `user_types` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `product_type`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -1210,7 +1201,6 @@ CREATE TABLE `users` (
   `email_verified` int(11) DEFAULT '0',
   `password_reset_token` longtext COLLATE utf8mb4_unicode_ci,
   `account_verification_code` int(11) DEFAULT NULL,
-  `is_business_user` int(11) DEFAULT NULL,
   `user_types_id` int(10) unsigned DEFAULT NULL,
   `business_name` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `business_location` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,

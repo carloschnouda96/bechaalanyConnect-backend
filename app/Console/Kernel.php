@@ -40,6 +40,11 @@ class Kernel extends ConsoleKernel
         $schedule->command('bycel:sync')->hourly()->withoutOverlapping();
         $schedule->command('bycel:check-orders')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('bycel:reconcile --auto-fail')->everyFifteenMinutes()->withoutOverlapping();
+
+        // Storefront login tokens expire after 30 days (config/sanctum.php) but nothing
+        // deleted them, so personal_access_tokens only ever grew. Production runs this from
+        // CronController::suppliersSync instead, since it uses URL cron, not the scheduler.
+        $schedule->command('sanctum:prune-expired --hours=24')->daily();
     }
 
     /**

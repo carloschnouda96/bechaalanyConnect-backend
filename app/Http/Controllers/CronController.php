@@ -28,7 +28,13 @@ class CronController extends Controller
     /** Catalog & price sync for every enabled supplier (recommended: hourly). */
     public function suppliersSync(Request $request): JsonResponse
     {
-        return $this->runForEnabledSuppliers($request, 'sync');
+        $response = $this->runForEnabledSuppliers($request, 'sync');
+
+        // Piggybacks on this hourly hit so production needs no extra wget line.
+        // Removes storefront login tokens more than a day past their 30-day expiry.
+        Artisan::call('sanctum:prune-expired', ['--hours' => 24]);
+
+        return $response;
     }
 
     /** Poll pending supplier orders for every enabled supplier (recommended: every 5 min). */

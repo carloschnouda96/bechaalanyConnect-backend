@@ -159,21 +159,6 @@ class ProductsVariation extends Model  implements TranslatableContract
         return self::computeSellingPrice((float) $cost, $this->effectiveProfitPercentage());
     }
 
-    /*
-     | `current_price` removed from $appends.
-     |
-     | The accessor calls auth()->user() during serialization, which makes every
-     | product response depend on who is asking — so nothing downstream can cache a
-     | product payload, and a queued job or console command serialising a variation
-     | resolves a different value than a web request would.
-     |
-     | It also had no consumer: the storefront resolves the tier price itself from
-     | the serialised `price_variations` relation ([productId].tsx:93), and
-     | OrderController::saveOrder recomputes it server-side from priceVariations,
-     | which is the authoritative path for what a user is actually charged.
-     |
-     | The accessor is kept for callers that want it explicitly.
-     */
     public $appends = ['full_path'];
 
     /**
@@ -183,32 +168,6 @@ class ProductsVariation extends Model  implements TranslatableContract
      * `priceVariations` arrives as `price_variations`.)
      */
     protected $with = ['priceVariations'];
-
-    /**
-     * Expose the price for the currently authenticated user's user type.
-     * If no auth user or matching variation, returns null.
-     *
-     * Assumes column names: user_types_id, price on product_price_variations table.
-     */
-    public function getCurrentPriceAttribute()
-    {
-        try {
-            $user = auth()->user();
-        } catch (\Throwable $e) {
-            $user = null;
-        }
-        if (!$user || !isset($user->user_types_id)) {
-            return null;
-        }
-
-        // If relationship already loaded use collection in memory; else do a focused query.
-        if ($this->relationLoaded('priceVariations')) {
-            $match = $this->priceVariations->firstWhere('user_types_id', $user->user_types_id);
-            return $match ? $match->price : null;
-        }
-        $match = $this->priceVariations()->forUserType($user->user_types_id)->first();
-        return $match ? $match->price : null;
-    }
 
     /* End custom functions */
 }

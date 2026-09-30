@@ -30,20 +30,24 @@ class CmsPagesController extends VendorCmsPagesController
 
     public function update(Request $request, $id)
     {
-        $response = parent::update($request, $id);
-
-        $this->repair($request->input('database_table'));
-
-        return $response;
+        // finally: the vendor alters columns one by one, so a save that throws half-way
+        // has already narrowed some of them — the repair matters most in exactly that case.
+        try {
+            return parent::update($request, $id);
+        } finally {
+            $this->repair($request->input('database_table'));
+        }
     }
 
     public function store(Request $request)
     {
-        $response = parent::store($request);
-
-        $this->repair($request->input('database_table'));
-
-        return $response;
+        // finally: the vendor alters columns one by one, so a save that throws half-way
+        // has already narrowed some of them — the repair matters most in exactly that case.
+        try {
+            return parent::store($request);
+        } finally {
+            $this->repair($request->input('database_table'));
+        }
     }
 
     /**

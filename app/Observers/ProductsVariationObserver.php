@@ -65,4 +65,26 @@ class ProductsVariationObserver
             $variation->manual_price = 1;
         }
     }
+
+    /**
+     * A new cost re-derives every user-type price that is a profit % on it
+     * (ProductPriceVariationObserver does the arithmetic on save). This is what keeps
+     * tier prices tracking supplier cost on each SupplierCatalogSync / CatalogImporter
+     * run. Fixed-price tier rows are the admin's and are left alone, like manual_price.
+     */
+    public function updated(ProductsVariation $variation): void
+    {
+        if (!$variation->wasChanged(['cost_price', 'external_price'])) {
+            return;
+        }
+
+        if (($variation->cost_price ?? $variation->external_price) === null) {
+            return;
+        }
+
+        $variation->priceVariations()
+            ->whereNotNull('profit_percentage')
+            ->get()
+            ->each(fn ($row) => $row->save());
+    }
 }
