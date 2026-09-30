@@ -30,6 +30,7 @@ class AdminPagesRenderTest extends TestCase
         'users',
         'products',
         'products-variations',
+        'supplier-categories',
     ];
 
     /** Custom pages, which live or die by their cms_pages row. */

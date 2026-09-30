@@ -96,6 +96,30 @@ class Product extends Model  implements TranslatableContract
             });
     }
 
+    /**
+     * A product that belongs in a storefront LISTING: sellable() AND at least one of
+     * its variations could be bought. Without the second half a product the admin had
+     * created but not yet given any variation showed "Buy Now" in every list and
+     * opened onto an empty "Coming Soon" page.
+     *
+     * The variation conditions are inlined rather than calling
+     * ProductsVariation::sellable(), which itself does whereHas('product', sellable) —
+     * the product half is already applied here.
+     *
+     * Listings only. The single-product route keeps using sellable(), so a direct link
+     * to an empty product still renders its own "Coming Soon" state.
+     */
+    public function scopeListable($query)
+    {
+        return $query->sellable()->whereHas('variations', function ($q) {
+            $q->where('is_active', 1)
+                ->where(function ($inner) {
+                    $inner->whereNull('supplier_status')
+                        ->orWhere('supplier_status', self::SUPPLIER_AVAILABLE);
+                });
+        });
+    }
+
     public function variations()
     {
         return $this->hasMany(ProductsVariation::class, 'product_id');

@@ -12,6 +12,7 @@ use App\Services\Suppliers\SupplierOrderFulfillment;
 use App\Services\Suppliers\SupplierOrderResult;
 use App\Services\Suppliers\SupplierRegistry;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 
@@ -187,6 +188,36 @@ class SupplierHealthController extends Controller
      * orders.external_order_uuid, so an order that did reach the supplier on a previous
      * attempt will not be placed twice.
      */
+    /**
+     * "Sync now" — run one supplier's catalog sync immediately.
+     *
+     * Ticking a category's Import on Supplier imports used to do nothing visible until
+     * the next hourly cron. This runs the same `{key}:sync` command in-process, exactly
+     * as CronController does (and for the same reason: schedule:run would spawn the FPM
+     * binary under a web request). The command's own lock makes a click during a cron
+     * run a harmless "already running".
+     */
+    public function sync(Request $request, SupplierRegistry $registry, $key)
+    {
+        $enabled = array_map(fn ($connector) => $connector->key(), $registry->enabled());
+
+        if (!in_array($key, $enabled, true)) {
+            return back()->withErrors(['sync' => "\"{$key}\" is not an enabled supplier."]);
+        }
+
+        set_time_limit(0);
+        ignore_user_abort(true);
+
+        $exitCode = Artisan::call("{$key}:sync");
+        $output = trim(Artisan::output());
+
+        Log::info('Supplier sync started from the CMS', ['supplier' => $key, 'exit_code' => $exitCode]);
+
+        return back()
+            ->with('success', $exitCode === 0 ? ucfirst($key) . ' sync finished.' : ucfirst($key) . ' sync failed — see the details below.')
+            ->with('supplier_sync_output', ['key' => $key, 'ok' => $exitCode === 0, 'text' => $output]);
+    }
+
     public function retry(Request $request, $id)
     {
         $order = Order::withoutGlobalScope('cms_draft_flag')->find($id);

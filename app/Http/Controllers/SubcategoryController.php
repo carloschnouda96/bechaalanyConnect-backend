@@ -26,7 +26,7 @@ class SubcategoryController extends Controller
             ->orderBy('ht_pos')
             ->get();
 
-        $products = Product::sellable()
+        $products = Product::listable()
             ->whereHas('subcategory', function ($query) use ($category) {
                 $query->where('is_active', 1)
                     ->where('category_id', $category->id)

@@ -49,6 +49,10 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
     // never reached the supplier. PUT so AdminMiddleware maps it to `edit` rights.
     Route::get('/supplier-health', 'App\Http\Controllers\Cms\SupplierHealthController@index');
     Route::put('/supplier-health/retry/{id}', 'App\Http\Controllers\Cms\SupplierHealthController@retry')->whereNumber('id');
+    // "Sync now": run one supplier's catalog sync immediately instead of waiting for the
+    // hourly cron. {key} is checked against SupplierRegistry::enabled() in the controller.
+    Route::put('/supplier-health/sync/{key}', 'App\Http\Controllers\Cms\SupplierHealthController@sync')
+        ->where('key', '[a-z0-9_-]+');
     // Bycel gives no order id on purchase, so an admin sometimes has to pick which
     // report row belongs to an order. PUT (not POST): AdminMiddleware maps POST to
     // the `add` permission and PUT to `edit`.
@@ -92,6 +96,27 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
      */
     Route::delete('/products/{id}', 'App\Http\Controllers\Cms\CatalogDeleteController@destroyProduct');
     Route::delete('/products-variations/{id}', 'App\Http\Controllers\Cms\CatalogDeleteController@destroyVariation');
+
+    /*
+     | The product page as the one place a product is set up (Cms\ProductEditorController):
+     | the vendor edit page plus a Variations card with every price, a quick-add row, and
+     | a create that lands on that page instead of the product list.
+     |
+     | GET edit / POST store replace the vendor's identical URIs. The two sub-resources
+     | have three segments and a numeric {id}, so they cannot swallow the vendor's
+     | literal `/products/edit/images`. POST .../variations maps to the Products `add`
+     | right in AdminMiddleware, PUT .../prices to `edit`.
+     */
+    Route::get('/products/{id}/edit', 'App\Http\Controllers\Cms\ProductEditorController@edit')->whereNumber('id');
+    Route::post('/products', 'App\Http\Controllers\Cms\ProductEditorController@store');
+    Route::post('/products/{id}/variations', 'App\Http\Controllers\Cms\ProductEditorController@addVariation')->whereNumber('id');
+    Route::put('/products/{id}/prices', 'App\Http\Controllers\Cms\ProductEditorController@prices')->whereNumber('id');
+
+    // Variation form save: vendor save, then the form's one pricing choice applied
+    // through VariationPricing (Cms\VariationFormController). whereNumber keeps the
+    // vendor's literal `PUT /products-variations/edit/images` and `/order` reachable.
+    Route::post('/products-variations', 'App\Http\Controllers\Cms\VariationFormController@store');
+    Route::put('/products-variations/{id}', 'App\Http\Controllers\Cms\VariationFormController@update')->whereNumber('id');
 
     // Public + per-user-type price (fixed or profit % on cost) for every variation. Replaced the
     // former Bulk pricing page (catalog-pricing), whose actions are its bulk bar.
