@@ -56,6 +56,14 @@ class SchemaManifest
                 'columns' => [
                     'price' => ['type' => 'decimal(12,2)', 'null' => false, 'default' => '0.00'],
                 ],
+                'indexes' => [
+                    // One price per (variation, user type): the Price matrix upserts on it,
+                    // and a second row would be silently ignored by firstWhere().
+                    'product_price_variations_variation_user_type_unique' => [
+                        'columns' => ['products_variations_id', 'user_types_id'],
+                        'unique' => true,
+                    ],
+                ],
             ],
 
             'products_variations' => [

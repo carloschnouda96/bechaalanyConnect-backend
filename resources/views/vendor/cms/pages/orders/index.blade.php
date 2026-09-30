@@ -18,7 +18,9 @@
 @section('dashboard-content')
     <div class="card mx-lg-5 mx-2 py-4">
         <div class="actions">
-            @if ($page['add'] || !request()->get('admin')['admin_role_id'])
+            {{-- No super-admin bypass here: orders are never created in the CMS (routes/cms.php
+                 refuses /orders/create — an order made here has no payment behind it). --}}
+            @if ($page['add'])
                 @if (request()->get('admin')['cms_pages'][$page['route']]['permissions']['add'])
                     <a href="{{ url(config('hellotree.cms_route_prefix') . '/' . $page['route'] . '/create') }}"
                         class="btn btn-primary btn-sm {{ $page['add'] ? '' : 'opacity-half' }}">Add</a>

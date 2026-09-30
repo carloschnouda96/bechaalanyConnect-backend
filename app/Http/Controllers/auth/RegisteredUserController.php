@@ -58,7 +58,6 @@ class RegisteredUserController extends Controller
             'verification_token' => $email_confirmation_token,
             'account_verification_code' => $account_verification_code,
             'email_verified' => 0,
-            'is_business_user' => 0,
             'business_name' => null,
             'business_location' => null,
             'user_types_id' => null,

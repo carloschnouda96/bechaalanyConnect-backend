@@ -93,6 +93,12 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
     Route::delete('/products/{id}', 'App\Http\Controllers\Cms\CatalogDeleteController@destroyProduct');
     Route::delete('/products-variations/{id}', 'App\Http\Controllers\Cms\CatalogDeleteController@destroyVariation');
 
+    // Public + per-user-type price (fixed or profit % on cost) for every variation. Replaced the
+    // former Bulk pricing page (catalog-pricing), whose actions are its bulk bar.
+    // PUT so AdminMiddleware maps it to `edit`.
+    Route::get('/price-matrix', 'App\Http\Controllers\Cms\PriceMatrixController@index');
+    Route::put('/price-matrix', 'App\Http\Controllers\Cms\PriceMatrixController@update');
+
     /*
      | Bulk catalog editing: export to CSV, edit in a spreadsheet, upload, review, apply.
      |
@@ -100,10 +106,6 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
      | permission, and an import can create products, so `add` is the honest right to
      | require. `/preview` is registered before the bare POST so the two do not overlap.
      */
-    Route::get('/catalog-pricing', 'App\Http\Controllers\Cms\CatalogPricingController@index');
-    // PUT so AdminMiddleware maps it to `edit`: repricing changes existing records.
-    Route::put('/catalog-pricing', 'App\Http\Controllers\Cms\CatalogPricingController@update');
-
     Route::get('/catalog-import', 'App\Http\Controllers\Cms\CatalogImportController@index');
     Route::get('/catalog-import/export', 'App\Http\Controllers\Cms\CatalogImportController@export');
     Route::post('/catalog-import/preview', 'App\Http\Controllers\Cms\CatalogImportController@preview');
@@ -125,6 +127,20 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
     Route::put('/orders/{id}', 'App\Http\Controllers\Cms\OrdersController@update')->whereNumber('id');
     Route::put('/credits-transfer/{id}', 'App\Http\Controllers\Cms\CreditsController@update')->whereNumber('id');
     Route::put('/users/{id}', 'App\Http\Controllers\Cms\UsersController@update')->whereNumber('id');
+
+    /*
+     | Vendor CRUD actions refused outright (registered after — and so over — the vendor's
+     | identical URIs). cms_pages.add/delete alone only hide the buttons from role admins;
+     | see LockedCmsActionController for why each one must never run.
+     */
+    $locked = 'App\Http\Controllers\Cms\LockedCmsActionController@refuse';
+    Route::get('/orders/create', $locked)->defaults('page', 'orders');
+    Route::post('/orders', $locked)->defaults('page', 'orders');
+    foreach (['statuses', 'product-type'] as $referencePage) {
+        Route::get('/' . $referencePage . '/create', $locked)->defaults('page', $referencePage);
+        Route::post('/' . $referencePage, $locked)->defaults('page', $referencePage);
+        Route::delete('/' . $referencePage . '/{id}', $locked)->defaults('page', $referencePage);
+    }
 
 
 	/* End admin route group */

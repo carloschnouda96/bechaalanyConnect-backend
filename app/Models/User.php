@@ -52,7 +52,6 @@ class User extends Authenticatable
         'account_verification_code',
         'country',
         'phone_number',
-        'is_business_user',
         'business_name',
         'business_location',
         'user_types_id',

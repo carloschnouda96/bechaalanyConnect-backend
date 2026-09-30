@@ -43,7 +43,7 @@ return new class extends Migration
             'products',
             'products-variations',
             'catalog-import',
-            'catalog-pricing',
+            'price-matrix',
             'product-price-variations',
             'product-type',
             'categories',

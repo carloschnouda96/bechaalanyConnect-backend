@@ -40,6 +40,10 @@ class AppServiceProvider extends ServiceProvider
         // code path) edits it directly — see the observer's docblock.
         ProductsVariation::observe(ProductsVariationObserver::class);
 
+        // Resolves a user-type price in profit-% mode to cost x (1 + %), so
+        // product_price_variations.price is always what the tier is charged.
+        \App\ProductPriceVariation::observe(\App\Observers\ProductPriceVariationObserver::class);
+
         // Both User classes map to the `users` table: App\Models\User is the auth
         // model, App\User is what the CMS Users page and Order::users() resolve to.
         // A balance edited on the CMS page goes through App\User, so observing only
