@@ -38,7 +38,7 @@ class SearchController extends Controller
         // Escape LIKE metacharacters so they are matched literally.
         $term = addcslashes($validated['name'], '%_\\');
 
-        $products = Product::sellable()
+        $products = Product::listable()
             ->whereHas('translations', function ($query) use ($term) {
                 $query->where('locale', app()->getLocale())
                     ->where('name', 'like', '%' . $term . '%');

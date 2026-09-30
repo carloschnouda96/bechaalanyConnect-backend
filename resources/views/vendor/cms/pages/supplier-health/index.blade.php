@@ -9,6 +9,8 @@
 @endsection
 
 @section('dashboard-content')
+    @include('cms::pages/supplier-health/_sync-output')
+
     <div class="card mx-lg-5 mx-2 py-4 px-3 mb-4">
         <h5 class="font-weight-bold mb-3">Suppliers</h5>
 
@@ -28,6 +30,7 @@
                             <th class="text-right">Awaiting supplier</th>
                             <th class="text-right">Never sent</th>
                             <th class="text-right">Failed</th>
+                            <th class="text-right">Catalog</th>
                         </tr>
                     </thead>
                     <tbody>
@@ -60,12 +63,18 @@
                                 <td class="text-right {{ $s['orders_failed'] > 0 ? 'text-warning' : 'text-muted' }}">
                                     {{ number_format($s['orders_failed']) }}
                                 </td>
+                                <td class="text-right">
+                                    @include('cms::pages/supplier-health/_sync-button', ['key' => $s['key']])
+                                </td>
                             </tr>
                         @endforeach
                     </tbody>
                 </table>
             </div>
-            <small class="text-muted">Balances are cached for 5 minutes.</small>
+            <small class="text-muted">
+                Balances are cached for 5 minutes. <strong>Sync now</strong> imports the categories ticked on
+                Supplier imports and refreshes costs and stock right away, instead of at the next hourly run.
+            </small>
         @endif
     </div>
 
