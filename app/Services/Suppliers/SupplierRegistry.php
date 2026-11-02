@@ -2,6 +2,7 @@
 
 namespace App\Services\Suppliers;
 
+use App\Services\Suppliers\Connectors\AlloSharejleConnector;
 use App\Services\Suppliers\Connectors\BycelConnector;
 use App\Services\Suppliers\Connectors\OneXPanelConnector;
 use App\Services\Suppliers\Connectors\SwiftConnector;
@@ -26,6 +27,7 @@ class SupplierRegistry
         UsharezConnector::KEY => UsharezConnector::class,
         UmanageConnector::KEY => UmanageConnector::class,
         BycelConnector::KEY => BycelConnector::class,
+        AlloSharejleConnector::KEY => AlloSharejleConnector::class,
     ];
 
     public function __construct(private Container $container)

@@ -63,6 +63,25 @@ class ProductsVariationObserver
 
         if ($variation->isDirty('price') && !ProductsVariation::isApplyingSystemPricing()) {
             $variation->manual_price = 1;
+
+            return;
+        }
+
+        // `price` is per unit_amount coins (ProductsVariation::pricingUnit()), so a new
+        // unit re-derives it — but only when the old price WAS the formula's result.
+        // A hand-typed price on a manual product is fixed even with manual_price = 0
+        // (VariationPricing::publicCell reads it the same way) and must survive.
+        if ($variation->isDirty('unit_amount') && !$variation->manual_price) {
+            $cost = $variation->cost_price ?? $variation->external_price;
+            $oldUnit = max(1, (int) $variation->getOriginal('unit_amount'));
+            $wasDerived = $cost !== null && abs(
+                ProductsVariation::computeSellingPrice((float) $cost * $oldUnit, $variation->effectiveProfitPercentage())
+                - (float) $variation->getOriginal('price')
+            ) < 0.005;
+
+            if ($wasDerived) {
+                $variation->price = $variation->priceFromCost();
+            }
         }
     }
 
@@ -74,7 +93,7 @@ class ProductsVariationObserver
      */
     public function updated(ProductsVariation $variation): void
     {
-        if (!$variation->wasChanged(['cost_price', 'external_price'])) {
+        if (!$variation->wasChanged(['cost_price', 'external_price', 'unit_amount'])) {
             return;
         }
 

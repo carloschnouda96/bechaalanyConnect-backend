@@ -51,9 +51,15 @@
                                              that is actually fine. --}}
                                         <span class="text-muted" title="The supplier API did not answer. See storage/logs/laravel.log">unavailable</span>
                                     @else
-                                        <span class="{{ $s['balance'] <= 0 ? 'text-danger font-weight-bold' : '' }}">
+                                        {{-- A balance below zero is fine while it stays inside the
+                                             supplier's debt allowance (usharez), so red means "no
+                                             headroom left", not "negative". --}}
+                                        <span class="{{ $s['balance'] + ($s['credit_line'] ?? 0) <= 0 ? 'text-danger font-weight-bold' : '' }}">
                                             {{ number_format($s['balance'], 2) }}
                                         </span>
+                                        @if (!is_null($s['credit_line']) && $s['credit_line'] > 0)
+                                            <div class="small text-muted">+ {{ number_format($s['credit_line'], 2) }} credit line</div>
+                                        @endif
                                     @endif
                                 </td>
                                 <td class="text-right">{{ number_format($s['orders_pending']) }}</td>

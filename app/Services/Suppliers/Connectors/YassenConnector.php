@@ -5,6 +5,7 @@ namespace App\Services\Suppliers\Connectors;
 use App\Order;
 use App\ProductsVariation;
 use App\Services\Suppliers\Contracts\SupplierConnector;
+use App\Services\Suppliers\SupplierApiException;
 use App\Services\Suppliers\SupplierOrderResult;
 use App\Services\Suppliers\SupplierProduct;
 use App\Services\Yassen\YassenClient;
@@ -18,6 +19,10 @@ use Illuminate\Support\Arr;
  * Pricing is per-unit (the supplier `price` is the unit cost). The recipient
  * field is Yassen's `playerId`. Availability comes from the `available` flag.
  * Status map: accept → completed, wait → pending, reject → failed.
+ *
+ * Other suppliers run the same white-label platform (identical endpoints,
+ * `api-token` auth, statuses and error codes): they subclass this with their own
+ * KEY, which is also their `config/services.php` block (AlloSharejleConnector).
  */
 class YassenConnector implements SupplierConnector
 {
@@ -29,12 +34,18 @@ class YassenConnector implements SupplierConnector
 
     public function key(): string
     {
-        return self::KEY;
+        return static::KEY;
+    }
+
+    /** `config('services.{key}.*')` for this supplier. */
+    protected function config(string $name, $default = null)
+    {
+        return config('services.' . static::KEY . '.' . $name, $default);
     }
 
     public function isEnabled(): bool
     {
-        return (bool) config('services.yassen.enabled');
+        return (bool) $this->config('enabled');
     }
 
     public function isConfigured(): bool
@@ -79,14 +90,14 @@ class YassenConnector implements SupplierConnector
      * the API host (api.yassen-card.com) serves the real image/webp. Verified against
      * the live feed — 6/6 sampled URLs behaved this way.
      */
-    private function normalizeImageUrl(?string $url): ?string
+    protected function normalizeImageUrl(?string $url): ?string
     {
         $url = trim((string) $url);
         if ($url === '') {
             return null;
         }
 
-        $base = rtrim((string) config('services.yassen.base_url'), '/');
+        $base = rtrim((string) $this->config('base_url'), '/');
         $path = (string) (parse_url($url, PHP_URL_PATH) ?: '');
         if ($base === '' || $path === '' || $path === '/') {
             // Nothing to rebase onto, or a host-only URL that names no file.
@@ -98,7 +109,7 @@ class YassenConnector implements SupplierConnector
 
     public function placeOrder(Order $order, ProductsVariation $variation): SupplierOrderResult
     {
-        $multiplier = (float) config('services.yassen.qty_multiplier', 1);
+        $multiplier = (float) $this->config('qty_multiplier', 1);
         $params = [
             'qty' => (int) round($order->quantity * $multiplier),
             'order_uuid' => $order->external_order_uuid,
@@ -112,11 +123,33 @@ class YassenConnector implements SupplierConnector
         // Yassen product id.
         $service = $variation->external_id ?: optional($variation->product)->external_id;
 
-        $response = $this->client->newOrder($service, $params);
+        try {
+            $response = $this->client->newOrder($service, $params);
+        } catch (SupplierApiException $e) {
+            // A refusal the platform documents as final (no balance, bad player
+            // id, product gone…) fails the order, which refunds the customer.
+            // Anything else stays an exception: the job retries, and the
+            // platform dedupes a retried order_uuid, so nothing is bought twice.
+            if ($e->apiErrorCode !== null && in_array($e->apiErrorCode, $this->finalErrorCodes(), true)) {
+                return new SupplierOrderResult(
+                    externalOrderId: null,
+                    status: SupplierOrderResult::FAILED,
+                    raw: ['error_code' => $e->apiErrorCode, 'message' => $e->getMessage()],
+                );
+            }
+            throw $e;
+        }
+
+        // The documented reply wraps the order in `data`
+        // ({"status":"OK","data":{"order_id":…,"status":"accept"}}), where the
+        // top-level `status` is the envelope's, not the order's.
+        $row = isset($response['data']) && is_array($response['data']) && isset($response['data']['order_id'])
+            ? $response['data']
+            : $response;
 
         return new SupplierOrderResult(
-            externalOrderId: (string) ($response['order_id'] ?? $response['id'] ?? '') ?: null,
-            status: $this->mapStatus($response['status'] ?? null) ?? SupplierOrderResult::PENDING,
+            externalOrderId: (string) ($row['order_id'] ?? $row['id'] ?? '') ?: null,
+            status: $this->mapStatus($row['status'] ?? null) ?? SupplierOrderResult::PENDING,
             raw: $response,
         );
     }
@@ -156,8 +189,20 @@ class YassenConnector implements SupplierConnector
         return null;
     }
 
+    /**
+     * In-body error codes that mean the order was refused for good and can be
+     * refunded. Empty for Yassen, which has always left a failed placement
+     * Approved for an admin to look at; a subclass opts in.
+     *
+     * @return int[]
+     */
+    protected function finalErrorCodes(): array
+    {
+        return [];
+    }
+
     /** accept → completed, reject → failed, wait/unknown → pending. */
-    private function mapStatus(?string $status): ?string
+    protected function mapStatus(?string $status): ?string
     {
         if ($status === null) {
             return null;
@@ -174,9 +219,11 @@ class YassenConnector implements SupplierConnector
     /**
      * Pick the local product_type_id from the supplier's `params` (the inputs the
      * order requires): no input → code/card (2); a phone hint → telecom charge (3);
-     * anything else that needs an identifier → direct recharge (1, User ID field).
+     * anything else that needs an identifier → direct recharge (1, User ID field),
+     * or Coin Recharge (4) when it is an `amount` product — priced per coin, with
+     * `qty` = the number of coins (Jawaker, SoulChill…).
      */
-    private function resolveProductTypeId(array $raw): int
+    protected function resolveProductTypeId(array $raw): int
     {
         $params = $raw['params'] ?? [];
         if (empty($params)) {
@@ -190,10 +237,10 @@ class YassenConnector implements SupplierConnector
             }
         }
 
-        return 1;
+        return strtolower((string) ($raw['product_type'] ?? '')) === 'amount' ? 4 : 1;
     }
 
-    private function normalizeQtyValues($qtyValues): ?array
+    protected function normalizeQtyValues($qtyValues): ?array
     {
         if ($qtyValues === null || $qtyValues === '') {
             return null;
@@ -205,7 +252,7 @@ class YassenConnector implements SupplierConnector
     }
 
     /** Yassen list endpoints may wrap rows under data/products; flatten to a list. */
-    private function extractList($response): array
+    protected function extractList($response): array
     {
         if (!is_array($response)) {
             return [];
@@ -218,7 +265,7 @@ class YassenConnector implements SupplierConnector
         return Arr::isList($response) ? $response : [$response];
     }
 
-    private function extractOrderRow(array $response): array
+    protected function extractOrderRow(array $response): array
     {
         foreach (['data', 'orders', 'result'] as $key) {
             if (isset($response[$key]) && is_array($response[$key])) {

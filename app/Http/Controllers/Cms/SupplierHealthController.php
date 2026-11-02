@@ -8,6 +8,7 @@ use App\Jobs\FulfillSupplierOrderJob;
 use App\Order;
 use App\Services\Bycel\BycelClient;
 use App\Services\Bycel\BycelPurchaseLedger;
+use App\Services\Suppliers\Contracts\HasCreditLine;
 use App\Services\Suppliers\SupplierOrderFulfillment;
 use App\Services\Suppliers\SupplierOrderResult;
 use App\Services\Suppliers\SupplierRegistry;
@@ -50,6 +51,7 @@ class SupplierHealthController extends Controller
                 'key' => $key,
                 'configured' => $this->safely(fn () => $connector->isConfigured(), false),
                 'balance' => $this->balanceFor($connector),
+                'credit_line' => $this->creditLineFor($connector),
                 'orders_pending' => Order::where('external_source', $key)->where('external_status', 'pending')->count(),
                 'orders_unplaced' => Order::where('external_source', $key)
                     ->where('statuses_id', Order::STATUS_APPROVED)
@@ -251,6 +253,20 @@ class SupplierHealthController extends Controller
             'cms:supplier-balance:' . $connector->key(),
             self::BALANCE_CACHE_SECONDS,
             fn () => $this->safely(fn () => $connector->balance(), null)
+        );
+    }
+
+    /** Same caching and guarding as balanceFor(); null for suppliers with no allowance. */
+    private function creditLineFor($connector): ?float
+    {
+        if (!$connector instanceof HasCreditLine) {
+            return null;
+        }
+
+        return Cache::remember(
+            'cms:supplier-credit-line:' . $connector->key(),
+            self::BALANCE_CACHE_SECONDS,
+            fn () => $this->safely(fn () => $connector->creditLine(), null)
         );
     }
 

@@ -9,6 +9,7 @@ use App\Order;
 use App\ProductsVariation;
 use App\Services\Credits\CreditLedger;
 use App\Services\Credits\DuplicateLedgerEntryException;
+use App\Services\Reseller\OrderWebhooks;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -37,11 +38,13 @@ class SupplierOrderFulfillment
             ->with(['product' => fn ($q) => $q->withoutGlobalScope('cms_draft_flag')])
             ->find($order->product_variation_id);
 
-        if (!$variation || !$variation->external_id || !$variation->product) {
+        if (!$variation || !$variation->external_id) {
             return false;
         }
 
-        $source = $variation->product->external_source;
+        // From the variation itself: a mapped supplier category puts supplier
+        // variations under an admin-made product with no external_source.
+        $source = $variation->supplierSource();
 
         return $source !== null && app(SupplierRegistry::class)->has($source);
     }
@@ -60,11 +63,13 @@ class SupplierOrderFulfillment
             ->with(['product' => fn ($q) => $q->withoutGlobalScope('cms_draft_flag')])
             ->find($order->product_variation_id);
 
-        if (!$variation || !$variation->product || !$variation->product->external_id) {
+        $source = $variation ? $variation->supplierSource() : null;
+        // A supplier id on the variation (any mapped/imported row) or, as before,
+        // on the parent product.
+        if (!$source || (!$variation->external_id && !optional($variation->product)->external_id)) {
             return; // not a supplier product
         }
 
-        $source = $variation->product->external_source;
         $connector = $this->registry->get($source);
         if (!$connector) {
             return; // unknown supplier
@@ -88,12 +93,13 @@ class SupplierOrderFulfillment
             throw $e;
         }
 
+        $previous = $order->external_status;
         $order->external_order_id = $result->externalOrderId ?: null;
         $order->external_status = $result->status;
         $order->external_response = $result->raw;
         $order->save();
 
-        $this->applyStatus($order);
+        $this->applyStatus($order, $previous);
     }
 
     /** Poll the supplier for the current status of an already-placed order. */
@@ -108,19 +114,33 @@ class SupplierOrderFulfillment
         }
 
         $result = $connector->checkOrder($order);
+        $previous = $order->external_status;
         $order->external_status = $result->status ?: $order->external_status;
         $order->external_response = $result->raw;
         $order->save();
 
-        $this->applyStatus($order);
+        $this->applyStatus($order, $previous);
     }
 
-    /** React to a freshly stored supplier status (refund on FAILED). */
-    private function applyStatus(Order $order): void
+    /**
+     * React to a freshly stored supplier status: refund on FAILED, and tell a
+     * reseller (order webhook) the first time it turns COMPLETED. For a supplier
+     * order that is the moment it is really delivered — the CMS/API approval
+     * before it only handed it to the supplier.
+     */
+    private function applyStatus(Order $order, ?string $previous = null): void
     {
         if ($order->external_status === SupplierOrderResult::FAILED
             && (int) $order->statuses_id !== Order::STATUS_REJECTED) {
             $this->refund($order);
+
+            return;
+        }
+
+        if ($order->external_status === SupplierOrderResult::COMPLETED
+            && $previous !== SupplierOrderResult::COMPLETED
+            && (int) $order->statuses_id === Order::STATUS_APPROVED) {
+            OrderWebhooks::orderFinalized((int) $order->id);
         }
     }
 
@@ -183,6 +203,8 @@ class SupplierOrderFulfillment
         // Notify the customer (in-app) that the supplier cancelled their order and
         // the credits were returned. Only fires on the real APPROVED→REJECTED transition.
         if ($refunded) {
+            OrderWebhooks::orderFinalized((int) $refunded->id);
+
             try {
                 NotificationController::createOrderNotification(
                     $refunded->users_id,

@@ -18,6 +18,8 @@ use App\Http\Controllers\SearchController;
 use App\Http\Controllers\SessionController;
 use App\Http\Controllers\SubcategoryController;
 use App\Http\Controllers\NotificationController;
+use App\Http\Controllers\ApiKeysController;
+use App\Http\Controllers\Reseller\ResellerApiController;
 
 /*
 |--------------------------------------------------------------------------
@@ -99,6 +101,20 @@ Route::get('/cron/queue/work', [CronController::class, 'queueWork'])
 Route::get('/cron/credits/reconcile', [CronController::class, 'reconcileCredits'])
     ->middleware('throttle:cron');
 
+// Reseller API — other stores buying through an API key (public/openapi/reseller-v1.yaml).
+//
+// Registered BEFORE every `{locale}` group: `/v1/products` has the same shape as
+// `/{locale}/products`, and Laravel matches in registration order, so a later
+// registration would be swallowed by the locale wildcard and 404.
+Route::prefix('v1')->middleware(['api.key', 'locale.header', 'throttle:reseller'])->group(function () {
+    Route::get('/balance', [ResellerApiController::class, 'balance']);
+    Route::get('/products', [ResellerApiController::class, 'products']);
+    Route::get('/products/{variation}', [ResellerApiController::class, 'product'])->whereNumber('variation');
+    Route::get('/orders', [ResellerApiController::class, 'orders']);
+    Route::post('/orders', [ResellerApiController::class, 'placeOrder'])->middleware('throttle:reseller-write');
+    Route::get('/orders/{order}', [ResellerApiController::class, 'order'])->whereNumber('order');
+});
+
 // Authenticated user routes.
 //
 // `locale.header` is what makes these answer in the caller's language: none of them
@@ -110,6 +126,19 @@ Route::middleware(['auth:sanctum', 'locale.header'])->group(function () {
     Route::get('/user', function (Request $request) {
         return $request->user();
     });
+
+    // Reseller API keys (/account-dashboard/api-keys). Creating one needs the
+    // admin's users.api_enabled switch; listing and revoking always work.
+    Route::get('/user/api-keys', [ApiKeysController::class, 'index']);
+    Route::post('/user/api-keys', [ApiKeysController::class, 'store'])->middleware('throttle:write');
+    Route::delete('/user/api-keys/{id}', [ApiKeysController::class, 'destroy'])->whereNumber('id');
+
+    // Reseller order-status webhook: one endpoint per user. Same api_enabled rule
+    // as creating a key; removing it always works.
+    Route::put('/user/api-webhook', [ApiKeysController::class, 'saveWebhook'])->middleware('throttle:write');
+    Route::post('/user/api-webhook/rotate-secret', [ApiKeysController::class, 'rotateWebhookSecret'])->middleware('throttle:write');
+    Route::post('/user/api-webhook/test', [ApiKeysController::class, 'testWebhook'])->middleware('throttle:write');
+    Route::delete('/user/api-webhook', [ApiKeysController::class, 'deleteWebhook']);
 
     // ORDER MATTERS. `delete-read` is a literal segment and must be registered
     // BEFORE the `{id}` wildcard: Laravel matches in registration order, so with

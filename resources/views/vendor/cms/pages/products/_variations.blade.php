@@ -97,6 +97,9 @@
                                     @elseif (!$row['is_active'])
                                         <span class="badge badge-secondary">inactive</span>
                                     @endif
+                                    @if ($row['source'])
+                                        <span class="badge badge-info" title="Imported by the supplier sync — its cost follows the supplier">{{ $row['source'] }}</span>
+                                    @endif
                                     @if ($row['supplier_status'] && $row['supplier_status'] !== 'available')
                                         <span class="badge badge-warning">{{ str_replace('_', ' ', $row['supplier_status']) }}</span>
                                     @endif

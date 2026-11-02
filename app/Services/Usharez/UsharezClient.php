@@ -23,6 +23,11 @@ use Illuminate\Support\Facades\Http;
  * Reads are auto-retried (idempotent). Writes are NOT: re-sending an allocate
  * would charge the account twice, so a dropped POST is reported as indeterminate
  * rather than retried or failed.
+ *
+ * Quota allocation has two versions. v2 (the default) is async: the POST answers
+ * 202 with a jobId and GET /api/v2/quota/admin/status/{jobId} is polled until the
+ * job is terminal. v1 is the old synchronous call, kept only as the rollback path
+ * behind services.usharez.quota_async — it could time out while Alfa was slow.
  */
 class UsharezClient
 {
@@ -69,13 +74,40 @@ class UsharezClient
         return $this->get('/api/alfa-gifts');
     }
 
-    /** POST /api/quota/admin/allocate — synchronous; returns no order id. */
+    /** POST /api/quota/admin/allocate (v1) — synchronous; returns no order id. Rollback path only. */
     public function allocateQuota(string $phoneNumber, int|float $quotaSize): array
     {
         return $this->post('/api/quota/admin/allocate', [
             'phoneNumber' => $phoneNumber,
             'quotaSize' => $quotaSize,
         ]);
+    }
+
+    /**
+     * POST /api/v2/quota/admin/allocate — async. HTTP 202
+     * {"success":true,"jobId":"…","status":"queued","pollUrl":"…","data":{…}}.
+     * Fast-fail errors (bad number, no quota, insufficient balance, phone busy)
+     * still come back immediately as a 4xx / success:false.
+     */
+    public function allocateQuotaAsync(string $phoneNumber, int|float $quotaSize): array
+    {
+        return $this->post('/api/v2/quota/admin/allocate', [
+            'phoneNumber' => $phoneNumber,
+            'quotaSize' => $quotaSize,
+        ]);
+    }
+
+    /**
+     * GET /api/v2/quota/admin/status/{jobId} —
+     * {"success":true,"jobId":"…","status":"succeeded","data":{"allocated_admin":{…},"error":null,"refunded":false}}.
+     *
+     * The success:false envelope check is OFF here: a body describing a rejected
+     * job is an answer about the job, not a failed request, so it is handed back
+     * for the connector to map by `status`. HTTP errors are classified as usual.
+     */
+    public function quotaJobStatus(string $jobId): array
+    {
+        return $this->get('/api/v2/quota/admin/status/' . rawurlencode($jobId), envelopeCheck: false);
     }
 
     /** POST /api/alfa-gifts/purchase — `service` is the gift's NAME, not an id. */
@@ -91,7 +123,7 @@ class UsharezClient
     // ------------------------------------------------------------------ transport
 
     /** Reads are idempotent, so they auto-retry and are never "indeterminate". */
-    private function get(string $path, array $query = []): array
+    private function get(string $path, array $query = [], bool $envelopeCheck = true): array
     {
         try {
             $response = $this->request()->retry(2, 500, throw: false)->get($path, $query);
@@ -99,7 +131,7 @@ class UsharezClient
             throw new SupplierApiException("Usharez GET {$path} failed: {$e->getMessage()}");
         }
 
-        return $this->interpret($response, 'GET', $path, indeterminateOnUnknown: false);
+        return $this->interpret($response, 'GET', $path, indeterminateOnUnknown: false, envelopeCheck: $envelopeCheck);
     }
 
     /** Writes never auto-retry — a repeated allocate would double-charge. */
@@ -114,7 +146,13 @@ class UsharezClient
         return $this->interpret($response, 'POST', $path, indeterminateOnUnknown: true);
     }
 
-    private function interpret(Response $response, string $method, string $path, bool $indeterminateOnUnknown): array
+    private function interpret(
+        Response $response,
+        string $method,
+        string $path,
+        bool $indeterminateOnUnknown,
+        bool $envelopeCheck = true,
+    ): array
     {
         $status = $response->status();
         $body = $response->json();
@@ -141,7 +179,7 @@ class UsharezClient
         }
 
         // A 200 that still reports failure in the envelope.
-        if (array_key_exists('success', $body) && $body['success'] === false) {
+        if ($envelopeCheck && array_key_exists('success', $body) && $body['success'] === false) {
             throw new UsharezBusinessException(
                 "Usharez {$method} {$path}: " . ($message !== '' ? $message : 'success=false'),
                 null,

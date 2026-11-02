@@ -81,7 +81,7 @@ class ProductPriceVariation extends Model
             return null;
         }
 
-        return ProductsVariation::computeSellingPrice((float) $cost, (float) $this->profit_percentage);
+        return ProductsVariation::computeSellingPrice((float) $cost * $variation->pricingUnit(), (float) $this->profit_percentage);
     }
 
     /* End custom functions */

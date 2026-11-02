@@ -5,21 +5,21 @@ namespace App\Console\Commands;
 use App\Services\Suppliers\Connectors\UsharezConnector;
 
 /**
- * usharez has NO order-status endpoint — both purchase POSTs are synchronous, so
- * UsharezConnector::checkOrder() echoes the stored status without any HTTP call
- * and this command is effectively a no-op.
+ * Polls usharez v2 quota jobs ("quota:{jobId}", GET /api/v2/quota/admin/status/{jobId})
+ * until they are terminal: succeeded writes the admin number to orders.code,
+ * rejected/failed refunds the customer and rejects the order (see
+ * UsharezConnector::checkOrder for `stopped`).
  *
- * It exists because CronController composes "{key}:check-orders" for EVERY
- * enabled supplier; without it, /api/cron/suppliers/check-orders would throw once
- * usharez is enabled. It doubles as a report: the only usharez orders it can find
- * are ones parked PENDING by an indeterminate POST, which need reconciling.
+ * Gift purchases are synchronous and orders parked by an indeterminate POST
+ * carry a synthetic "usharez-…" id; both are echoed without any HTTP call and
+ * stay listed here until an admin resolves them.
  *   php artisan usharez:check-orders
  */
 class CheckUsharezOrders extends CheckSupplierOrdersCommand
 {
     protected $signature = 'usharez:check-orders {--limit=100 : Max orders to poll per run}';
 
-    protected $description = 'List usharez orders awaiting manual reconciliation (usharez exposes no status endpoint)';
+    protected $description = 'Poll pending usharez quota jobs and apply their outcome';
 
     protected function supplierKey(): string
     {

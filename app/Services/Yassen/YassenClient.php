@@ -16,7 +16,11 @@ class YassenClient
     private string $baseUrl;
     private ?string $token;
 
-    public function __construct(?string $baseUrl = null, ?string $token = null)
+    /**
+     * `$label` names the supplier in exception messages: the same client serves
+     * every supplier running the Yassen platform (Allo Sharejle).
+     */
+    public function __construct(?string $baseUrl = null, ?string $token = null, private string $label = 'Yassen')
     {
         $this->baseUrl = rtrim($baseUrl ?? (string) config('services.yassen.base_url'), '/');
         $this->token = $token ?? config('services.yassen.token');
@@ -74,9 +78,12 @@ class YassenClient
         $response = $this->request()->get($path, $query);
 
         if ($response->failed()) {
+            // The documented error codes may also arrive on a non-2xx reply;
+            // keep the code so a connector can tell a final refusal from an outage.
+            $failedCode = $response->json('code');
             throw new YassenApiException(
-                "Yassen API request to {$path} failed: HTTP {$response->status()}",
-                null,
+                "{$this->label} API request to {$path} failed: HTTP {$response->status()}",
+                is_numeric($failedCode) ? (int) $failedCode : null,
                 $response->status()
             );
         }
@@ -86,9 +93,9 @@ class YassenClient
         // The API signals in-body errors via a numeric `code` (e.g. 121 token error).
         $code = $body['code'] ?? null;
         if ($code !== null && (int) $code !== 0 && isset($body['error'])) {
-            $message = $body['message'] ?? $body['error'] ?? 'Yassen API error';
+            $message = $body['message'] ?? $body['error'] ?? $this->label . ' API error';
             throw new YassenApiException(
-                "Yassen API error on {$path}: {$message} (code {$code})",
+                "{$this->label} API error on {$path}: {$message} (code {$code})",
                 (int) $code,
                 $response->status()
             );

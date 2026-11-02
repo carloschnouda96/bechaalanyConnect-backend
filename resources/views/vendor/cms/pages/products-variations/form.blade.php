@@ -18,7 +18,7 @@
     $coinTypeId = 4; // product_type "coin-recharge" — see Coin Recharge products
 
     $byName = collect($page_fields)->keyBy('name');
-    $special = ['product_id', 'price', 'cost_price', 'profit_percentage', 'unit_amount', 'slug'];
+    $special = ['product_id', 'price', 'cost_price', 'profit_percentage', 'unit_amount', 'min_quantity', 'max_quantity', 'slug'];
     $details = collect($page_fields)->reject(fn ($f) => in_array($f['name'], $special, true))
         ->merge($byName->has('slug') ? [$byName['slug']] : [])
         ->values();
@@ -27,7 +27,11 @@
     $lockedProductId = isset($row) ? null : request('product_id');
     $productId = isset($row) ? $row['product_id'] : ($lockedProductId ?: old('product_id'));
     $parent = $productId ? $products->firstWhere('id', (int) $productId) : null;
-    $isSupplier = $parent && filled($parent->external_source);
+    // The variation's own source first: a mapped supplier category puts supplier
+    // variations under an admin-made product that has none.
+    $supplierSource = (isset($row) && filled($row['external_id'] ?? null) ? ($row['external_source'] ?? null) : null)
+        ?: ($parent ? $parent->external_source : null);
+    $isSupplier = filled($supplierSource);
     $returnTo = request('return_to') === 'product' ? 'product' : null;
 
     // Which pricing mode the row is in right now — the same reading the Price matrix uses.
@@ -77,7 +81,7 @@
 
             @if ($isSupplier)
                 <div class="alert alert-info">
-                    Imported from <strong>{{ $parent->external_source }}</strong>
+                    Imported from <strong>{{ $supplierSource }}</strong>
                     @if (isset($row) && $row['supplier_status'])
                         &middot; supplier status <strong>{{ str_replace('_', ' ', $row['supplier_status']) }}</strong>
                     @endif
@@ -177,6 +181,36 @@
                     @include('cms::pages/cms-page/form-fields', ['locale' => null])
                 </div>
             @endif
+            @if ($byName->has('min_quantity'))
+                @php
+                    $field = $byName['min_quantity'];
+                    $supplierQty = isset($row) ? ($row['external_qty_values'] ?? null) : null;
+                    if (is_string($supplierQty)) {
+                        $supplierQty = json_decode($supplierQty, true);
+                    }
+                    $supplierMin = is_array($supplierQty) && isset($supplierQty['min']) && is_numeric($supplierQty['min']) && $supplierQty['min'] > 1
+                        ? (int) $supplierQty['min'] : null;
+                @endphp
+                @include('cms::pages/cms-page/form-fields', ['locale' => null])
+                @if ($supplierMin)
+                    <p class="text-muted small mt-n2">The supplier's own minimum is {{ number_format($supplierMin) }} (in its order units). The higher of the two applies.</p>
+                @endif
+            @endif
+            @if ($byName->has('max_quantity'))
+                @php
+                    $field = $byName['max_quantity'];
+                    $supplierQty = isset($row) ? ($row['external_qty_values'] ?? null) : null;
+                    if (is_string($supplierQty)) {
+                        $supplierQty = json_decode($supplierQty, true);
+                    }
+                    $supplierMax = is_array($supplierQty) && isset($supplierQty['max']) && is_numeric($supplierQty['max'])
+                        ? (int) $supplierQty['max'] : null;
+                @endphp
+                @include('cms::pages/cms-page/form-fields', ['locale' => null])
+                @if ($supplierMax)
+                    <p class="text-muted small mt-n2">The supplier's own maximum is {{ number_format($supplierMax) }} (in its order units). The lower of the two applies.</p>
+                @endif
+            @endif
             @foreach ($details as $field)
                 @if ($field['name'] == 'slug' && (isset($row) && (isset($row['cms_draft_flag']) && $row['cms_draft_flag'] == 1)))
                     @php
@@ -246,19 +280,24 @@
                 // they are only hidden for other product types.
                 each('.pe-coin', function (el) { el.classList.toggle('pe-hidden', productType() !== coinTypeId); });
 
-                var c = cost.value === '' ? null : parseFloat(cost.value);
+                // Price is per unit_amount coins (ProductsVariation::pricingUnit()), cost per coin.
+                var unitInput = document.querySelector('input[name="unit_amount"]');
+                var unit = productType() === coinTypeId && unitInput && parseInt(unitInput.value, 10) > 0 ? parseInt(unitInput.value, 10) : 1;
+                var c = cost.value === '' ? null : parseFloat(cost.value) * unit;
                 var p = null;
                 if (m === 'percent') {
                     p = c === null ? null : selling(c, profit.value === '' ? defaultProfit : parseFloat(profit.value));
                 } else if (price.value !== '') {
                     p = parseFloat(price.value);
                 }
-                preview.textContent = p === null ? (m === 'percent' ? 'needs a cost price' : '—') : '$' + p.toFixed(2);
+                preview.textContent = p === null ? (m === 'percent' ? 'needs a cost price' : '—')
+                    : '$' + p.toFixed(2) + (unit > 1 ? ' per ' + unit.toLocaleString() + ' coins' : '');
                 loss.hidden = !(p !== null && c !== null && p < c);
             }
 
             each('input[name="pricing_mode"]', function (el) { el.addEventListener('change', render); });
-            [cost, profit, price].forEach(function (el) { el.addEventListener('input', render); });
+            [cost, profit, price, document.querySelector('input[name="unit_amount"]')]
+                .forEach(function (el) { if (el) el.addEventListener('input', render); });
             if (product && product.tagName === 'SELECT') {
                 product.addEventListener('change', render);
                 if (window.jQuery) window.jQuery(product).on('change', render); // select2 fires jQuery events

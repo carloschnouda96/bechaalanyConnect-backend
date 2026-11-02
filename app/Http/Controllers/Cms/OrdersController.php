@@ -19,6 +19,7 @@ use App\Services\Credits\CreditLedger;
 use App\Services\Credits\DuplicateLedgerEntryException;
 use App\Services\Credits\InsufficientCreditsException;
 use App\Services\Credits\StatusChangeOutcome;
+use App\Services\Reseller\OrderWebhooks;
 use App\Services\Suppliers\SupplierOrderFulfillment;
 
 class OrdersController extends Controller
@@ -348,6 +349,13 @@ class OrdersController extends Controller
     {
         if (!in_array($outcome->to, [Order::STATUS_APPROVED, Order::STATUS_REJECTED], true)) {
             return;
+        }
+
+        // Reseller webhook (API orders only). An approval that hands the order to a
+        // supplier is not the end of it: SupplierOrderFulfillment fires the webhook
+        // once the supplier completes it (or refunds and rejects it).
+        if (!$outcome->shouldFulfill) {
+            OrderWebhooks::orderFinalized($orderId);
         }
 
         $order = Order::withoutGlobalScope('cms_draft_flag')->find($orderId);

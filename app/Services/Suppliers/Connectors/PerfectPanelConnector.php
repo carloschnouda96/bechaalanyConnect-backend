@@ -3,11 +3,14 @@
 namespace App\Services\Suppliers\Connectors;
 
 use App\Order;
+use App\Product;
 use App\ProductsVariation;
 use App\Services\PerfectPanel\PerfectPanelClient;
+use App\Services\PerfectPanel\PerfectPanelServicePage;
 use App\Services\Suppliers\Contracts\SupplierConnector;
 use App\Services\Suppliers\SupplierOrderResult;
 use App\Services\Suppliers\SupplierProduct;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Str;
 
 /**
@@ -28,7 +31,12 @@ use Illuminate\Support\Str;
  * is built per connector (no container auto-wiring needed, since each supplier
  * needs a different base URL + key).
  *
- * All synced Perfect Panel products are product_type_id = 1 (recipient/link field).
+ * Product type: classic `Default` SMM services are Social Media Services
+ * (product_type_id = 5 — link + typed quantity, priced per 1,000); `Package`
+ * services stay Direct Recharge (type 1, one package per unit).
+ *
+ * The API carries no description or delivery time, so a panel may opt in to
+ * reading them from its public /services page (serviceDetails()).
  */
 abstract class PerfectPanelConnector implements SupplierConnector
 {
@@ -64,6 +72,8 @@ abstract class PerfectPanelConnector implements SupplierConnector
 
     public function fetchCatalog(): array
     {
+        $details = $this->serviceDetails();
+
         $out = [];
         foreach ($this->client()->services() as $raw) {
             if (!is_array($raw)) {
@@ -79,7 +89,7 @@ abstract class PerfectPanelConnector implements SupplierConnector
 
             $out[] = new SupplierProduct(
                 externalId: $externalId,
-                name: trim((string) ($raw['name'] ?? ('Service ' . $externalId))),
+                name: $this->displayName(trim((string) ($raw['name'] ?? ('Service ' . $externalId)))),
                 // No category id in Perfect Panel — group by a slug of the name.
                 categoryExternalId: Str::slug($category) ?: 'uncategorized',
                 categoryName: $category,
@@ -90,6 +100,9 @@ abstract class PerfectPanelConnector implements SupplierConnector
                 productTypeId: $this->productTypeId($raw),
                 qtyValues: $this->qtyValues($raw['min'] ?? null, $raw['max'] ?? null),
                 externalType: $type,
+                // Only when this run actually has the scraped page — an empty map
+                // (opted out, or the page failed) must leave stored details alone.
+                details: $details === [] ? null : $this->detailsFor($raw, $details[$externalId] ?? null),
             );
         }
 
@@ -144,7 +157,57 @@ abstract class PerfectPanelConnector implements SupplierConnector
      */
     protected function productTypeId(array $raw): int
     {
-        return 1;
+        $type = isset($raw['type']) ? trim((string) $raw['type']) : '';
+
+        return strcasecmp($type, 'Package') === 0 ? Product::TYPE_USER_ID : Product::TYPE_SOCIAL;
+    }
+
+    /** Customer-facing service name. Overridden by panels whose names carry their branding. */
+    protected function displayName(string $name): string
+    {
+        return $name;
+    }
+
+    /**
+     * Service details scraped from the panel's public /services page, keyed by
+     * service id, or [] when this panel doesn't opt in (config
+     * `services.{key}.scrape_details`) or the page can't be read. Cached for
+     * PerfectPanelServicePage::CACHE_TTL_SECONDS because the page is tens of MB;
+     * a failed read is never cached, so the next sync simply tries again.
+     */
+    protected function serviceDetails(): array
+    {
+        $key = $this->key();
+        if (!config("services.{$key}.scrape_details")) {
+            return [];
+        }
+
+        $cacheKey = "perfectpanel-details:{$key}";
+        $cached = Cache::get($cacheKey);
+        if (is_array($cached) && $cached !== []) {
+            return $cached;
+        }
+
+        $details = app(PerfectPanelServicePage::class)->fetch((string) config("services.{$key}.base_url"), $key);
+        if ($details !== []) {
+            Cache::put($cacheKey, $details, PerfectPanelServicePage::CACHE_TTL_SECONDS);
+        }
+
+        return $details;
+    }
+
+    /** The scraped text for one service plus the capability flags the API itself reports. */
+    private function detailsFor(array $raw, ?array $scraped): array
+    {
+        return array_merge(
+            ['quality' => null, 'speed' => null, 'refill' => null, 'link' => null, 'start_time' => null, 'drop' => null, 'notes' => [], 'average_time' => null],
+            $scraped ?? [],
+            [
+                'refill_available' => (bool) ($raw['refill'] ?? false),
+                'cancel_available' => (bool) ($raw['cancel'] ?? false),
+                'dripfeed' => (bool) ($raw['dripfeed'] ?? false),
+            ],
+        );
     }
 
     /**

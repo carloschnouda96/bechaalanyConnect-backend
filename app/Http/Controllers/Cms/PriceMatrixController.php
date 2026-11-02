@@ -51,7 +51,10 @@ class PriceMatrixController extends Controller
             ->when(($filters['source'] ?? '') !== '', function ($query) use ($filters) {
                 $filters['source'] === 'manual'
                     ? $query->whereNull('external_source')
-                    : $query->where('external_source', $filters['source']);
+                    // Also an admin product a supplier category is mapped into.
+                    : $query->where(fn ($q) => $q->where('external_source', $filters['source'])
+                        ->orWhereHas('variations', fn ($v) => $v->withoutGlobalScope('cms_draft_flag')
+                            ->where('external_source', $filters['source'])));
             })
             ->when($filters['subcategory_id'] ?? null, fn ($q, $id) => $q->where('subcategory_id', $id))
             ->when(isset($filters['active']), fn ($q) => $q->where('is_active', (int) $filters['active']))
@@ -76,7 +79,7 @@ class PriceMatrixController extends Controller
                 'product_id' => $product->id,
                 'product' => $productName,
                 'name' => optional($variation->translate($locale))->name ?: $variation->slug,
-                'source' => $product->external_source,
+                'source' => $product->external_source ?: ($variation->external_id ? $variation->external_source : null),
                 'is_active' => (int) $variation->is_active && (int) $product->is_active,
                 'cost' => VariationPricing::costOf($variation),
                 'cells' => $this->pricing->cells($variation),

@@ -84,6 +84,9 @@ class SchemaManifest
                 ],
                 'indexes' => [
                     'products_variations_external_id_index' => ['columns' => ['external_id']],
+                    // The sync's (source, external_id) variation lookup, now that a
+                    // supplier variation can sit under an admin-made product.
+                    'products_variations_external_source_id_index' => ['columns' => ['external_source', 'external_id']],
                 ],
             ],
 
@@ -117,6 +120,9 @@ class SchemaManifest
                     // The fulfillment re-entry guard. Losing this unique constraint
                     // would allow a retried job to place a duplicate supplier order.
                     'orders_external_order_uuid_unique' => ['columns' => ['external_order_uuid'], 'unique' => true],
+                    // The reseller API's retry guard: a repeated POST /v1/orders with the
+                    // same client_order_id must find the first order, never debit twice.
+                    'orders_user_client_order_unique' => ['columns' => ['users_id', 'client_order_id'], 'unique' => true],
                 ],
             ],
 

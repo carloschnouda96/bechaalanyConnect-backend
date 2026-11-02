@@ -62,6 +62,15 @@ class Product extends Model  implements TranslatableContract
      * `supplier_status` is sync-owned (never written by the CMS — read-only
      * field); "sellable" is derived from both at read time and stored nowhere.
      */
+    /** product_type ids the code branches on (ids are hardcoded in reference-data.sql). */
+    public const TYPE_USER_ID = 1;
+    public const TYPE_CODE = 2;
+    public const TYPE_PHONE = 3;
+    public const TYPE_COIN = 4;
+    // Social Media Service: a link + a typed quantity, priced per unit_amount
+    // (1,000) units — Perfect Panel `Default` services (1xpanel).
+    public const TYPE_SOCIAL = 5;
+
     public const SUPPLIER_AVAILABLE = 'available';
     public const SUPPLIER_OUT_OF_STOCK = 'out_of_stock';
     public const SUPPLIER_WITHDRAWN = 'withdrawn';

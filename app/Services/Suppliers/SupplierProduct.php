@@ -35,6 +35,13 @@ class SupplierProduct
          * on first import only; an admin's CMS upload is never overwritten.
          */
         public ?string $image = null,
+        /**
+         * Customer-facing service details (quality, speed, refill, link, start
+         * time, drop, notes, average time) — only Perfect Panel connectors that
+         * scrape their panel's public services page fill it. null = "this run has
+         * no details", which leaves whatever is stored untouched.
+         */
+        public ?array $details = null,
     ) {
     }
 }

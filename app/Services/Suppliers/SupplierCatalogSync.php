@@ -99,9 +99,52 @@ use Illuminate\Support\Str;
  * turning grouping on or off MOVES the existing row instead of duplicating it —
  * which keeps its id, and with it every `orders.product_variation_id` pointing
  * at it.
+ *
+ * MAPPED CATEGORIES
+ * -----------------
+ * Setting `supplier_categories.product_id` imports every row of the category as
+ * a variation of a product the ADMIN created (1xpanel "Instagram - Likes (USA)"
+ * → their "Likes" product under Social Media › Instagram). Several supplier
+ * categories may share one product. It takes precedence over grouping, and
+ * Category/Subcategory are ignored — the product already has a place.
+ *
+ * The target product is entirely admin-owned: the sync never writes its name,
+ * type, image, subcategory, is_active or supplier_status; it only attaches and
+ * updates variations. `Product::scopeListable()` already hides it while none of
+ * its variations is active and in stock. Because the parent has no
+ * `external_source`, the supplier is recorded on the variation itself
+ * (`products_variations.external_source`) — that is what
+ * SupplierOrderFulfillment resolves the connector from. A target that belongs to
+ * a supplier, or whose product type differs from the row's (the type decides
+ * which recipient field the storefront collects), is refused and logged.
  */
 class SupplierCatalogSync
 {
+    /**
+     * Coins per `price` for a supplier coin variation: the smallest power of 10 that
+     * makes the unit cost at least $1, so rounding `price` to the cent costs at most
+     * ~0.5% (Jawaker $0.000105/coin → 10,000 coins = $1.05 cost; SoulChill $0.00172
+     * → 1,000 = $1.72). A per-coin price in decimal(12,2) would round to $0.00.
+     */
+    public static function coinPricingUnit(float $unitCost): int
+    {
+        if ($unitCost <= 0 || $unitCost >= 1) {
+            return 1;
+        }
+
+        return (int) min(1000000, 10 ** (int) ceil(log10(1 / $unitCost) - 1e-9));
+    }
+
+    /**
+     * Units per `price` for a Social Media Service: 1,000, the unit the panel
+     * itself quotes — or more, for a service so cheap that its price per 1,000
+     * would still round to a few cents (the coin rule above, floored at 1,000).
+     */
+    public static function socialPricingUnit(float $unitCost): int
+    {
+        return max(1000, self::coinPricingUnit($unitCost));
+    }
+
     /**
      * Grouped products resolved during the current sync() call, keyed by
      * supplier_categories.id, so a category with 200 rows resolves its product once.
@@ -134,6 +177,7 @@ class SupplierCatalogSync
 
         $enabled = SupplierCategory::where('source', $source)
             ->where('import_enabled', true)
+            ->with(['product' => fn ($q) => $q->withoutGlobalScope('cms_draft_flag')])
             ->get()
             ->keyBy('external_id');
 
@@ -172,6 +216,10 @@ class SupplierCatalogSync
         // of the shared product rather than as withdrawn products.
         $summary['deactivated'] += $this->reconcileGroupedCategories($products, $enabled, $source, $scopes);
 
+        // 6. Mapped categories' variations live under admin-made products, which no
+        // product-level sweep ever visits.
+        $summary['deactivated'] += $this->reconcileMappedVariations($products, $enabled, $source, $scopes);
+
         return $summary;
     }
 
@@ -205,6 +253,8 @@ class SupplierCatalogSync
                     'source' => $source,
                     'external_id' => $externalId,
                     'import_enabled' => false,
+                    // Seeded once; the admin's tick on the CMS page wins afterwards.
+                    'group_as_single_product' => (bool) config("services.{$source}.group_categories_by_default", false),
                     'cms_draft_flag' => 0,
                 ]));
             }
@@ -224,6 +274,10 @@ class SupplierCatalogSync
      */
     private function upsertProduct(SupplierProduct $dto, SupplierCategory $supplierCategory, string $source): array
     {
+        if ($supplierCategory->product_id) {
+            return $this->upsertMappedVariation($dto, $supplierCategory, $source);
+        }
+
         if ($supplierCategory->group_as_single_product) {
             return $this->upsertGroupedVariation($dto, $supplierCategory, $source);
         }
@@ -291,6 +345,58 @@ class SupplierCatalogSync
         [$category, $subcategory] = $this->ensureLocalTree($supplierCategory, $source);
 
         $product = $this->ensureGroupProduct($supplierCategory, $dto, $subcategory, $source);
+
+        $variation = $this->upsertVariation($product, $dto, $source);
+
+        return [
+            'status' => $variation['created'] ? 'created' : 'updated',
+            'price_changed' => $variation['price_changed'] && !$variation['created'],
+        ];
+    }
+
+    /**
+     * Mapped category: the row becomes a variation of the admin-made product the
+     * category points at. Nothing about that product is written.
+     *
+     * Throws (counted as an error by sync(), nothing moved) when the target cannot
+     * safely host the row — see the class docblock's MAPPED CATEGORIES section.
+     *
+     * @return array{status:string,price_changed:bool}
+     */
+    private function upsertMappedVariation(SupplierProduct $dto, SupplierCategory $supplierCategory, string $source): array
+    {
+        $product = $supplierCategory->product;
+
+        if (!$product) {
+            throw new \RuntimeException(sprintf(
+                'Supplier category "%s" is mapped to product #%d, which no longer exists.',
+                $supplierCategory->name,
+                $supplierCategory->product_id
+            ));
+        }
+
+        if (filled($product->external_source)) {
+            // Its own supplier's sweeps (markWithdrawnProducts / grouped rollup)
+            // would mark our rows withdrawn whenever that product goes.
+            throw new \RuntimeException(sprintf(
+                'Supplier category "%s" is mapped to product #%d, which is imported from "%s"; map it to a product you created instead.',
+                $supplierCategory->name,
+                $product->id,
+                $product->external_source
+            ));
+        }
+
+        if ((int) $product->product_type_id !== (int) $dto->productTypeId) {
+            // The product type decides which recipient field the storefront asks
+            // for; a mismatch would place supplier orders with no link / player id.
+            throw new \RuntimeException(sprintf(
+                'Supplier category "%s" is mapped to product #%d of type %d, but its rows need type %d.',
+                $supplierCategory->name,
+                $product->id,
+                (int) $product->product_type_id,
+                (int) $dto->productTypeId
+            ));
+        }
 
         $variation = $this->upsertVariation($product, $dto, $source);
 
@@ -403,9 +509,26 @@ class SupplierCatalogSync
             // creation, and never written again by this sync.
             $variation->is_active = 1;
             $this->setTranslations($variation, ['name' => $name, 'description' => '']);
+            // A coin product is priced per coin by the supplier; `price` is decimal(12,2),
+            // so it is stored per coinPricingUnit() coins (ProductsVariation::pricingUnit()).
+            // Seeded once, like product_type_id — admin-owned afterwards.
+            if ((int) $product->product_type_id === Product::TYPE_COIN && !$variation->unit_amount) {
+                $variation->unit_amount = self::coinPricingUnit($cost);
+            }
+        }
+
+        // A Social Media Service is priced per 1,000 (socialPricingUnit()), as the panel quotes it.
+        // Unlike the coin seed above this also applies to an existing row (one that
+        // just moved onto a grouped type-5 product): left at 1, a sub-cent per-unit
+        // cost rounds `price` to $0.00 and the order is free.
+        if ((int) $product->product_type_id === Product::TYPE_SOCIAL && !$variation->unit_amount) {
+            $variation->unit_amount = self::socialPricingUnit($cost);
         }
 
         $variation->product_id = $product->id;
+        // Who fulfils it travels with the variation, not the parent: a mapped
+        // category's parent is an admin product with no external_source.
+        $variation->external_source = $source;
 
         // ht_pos is admin-owned (the CMS drag-and-drop order): assigned once, at
         // the END of the table-wide order, and never rewritten — so an import only
@@ -419,7 +542,9 @@ class SupplierCatalogSync
         }
 
         $profit = $variation->effectiveProfitPercentage();
-        $newPrice = ProductsVariation::computeSellingPrice($cost, $profit);
+        // `price` is per pricingUnit() units (1,000 coins for a coin variation), so a
+        // per-coin cost doesn't round to a free $0.00.
+        $newPrice = ProductsVariation::computeSellingPrice($cost * $variation->pricingUnit(), $profit);
         // manual_price ("Price" locked, see ProductsVariationObserver): an admin
         // edited this variation's price directly, so cost keeps syncing but price
         // is theirs from now on.
@@ -433,6 +558,11 @@ class SupplierCatalogSync
         }
         $variation->external_type = $dto->externalType;
         $variation->external_qty_values = $this->normalizeQtyValues($dto->qtyValues);
+        // Sync-owned and rewritten every run; null means this run has none (the
+        // page couldn't be read), so the last good copy is kept.
+        if ($dto->details !== null) {
+            $variation->external_details = $dto->details;
+        }
         $variation->supplier_status = $dto->available ? Product::SUPPLIER_AVAILABLE : Product::SUPPLIER_OUT_OF_STOCK;
         $variation->cms_draft_flag = 0;
         ProductsVariation::applyingSystemPricing(fn () => $variation->save());
@@ -448,8 +578,11 @@ class SupplierCatalogSync
     {
         $variation = ProductsVariation::withoutGlobalScope('cms_draft_flag')
             ->where('external_id', $externalId)
-            ->whereHas('product', fn ($q) => $q->withoutGlobalScope('cms_draft_flag')
-                ->where('external_source', $source))
+            ->where(fn ($q) => $q->where('external_source', $source)
+                // Rows written before the column existed and missed by the backfill.
+                ->orWhere(fn ($q) => $q->whereNull('external_source')
+                    ->whereHas('product', fn ($q) => $q->withoutGlobalScope('cms_draft_flag')
+                        ->where('external_source', $source))))
             ->first();
 
         return $variation ?: $this->reclaimOrphanVariation($externalId, $source);
@@ -468,12 +601,16 @@ class SupplierCatalogSync
      * with only one of them working.
      *
      * Scoped to parents with a NULL `external_source`: a product belonging to
-     * ANOTHER supplier is that supplier's business, never ours to take.
+     * ANOTHER supplier is that supplier's business, never ours to take. And to
+     * variations with no `external_source` of their own: one that has it is either
+     * ours (found by findVariation()) or another supplier's sitting under a mapped
+     * admin product — Perfect Panel service ids are plain numbers and collide.
      */
     private function reclaimOrphanVariation(string $externalId, string $source): ?ProductsVariation
     {
         $variation = ProductsVariation::withoutGlobalScope('cms_draft_flag')
             ->where('external_id', $externalId)
+            ->whereNull('external_source')
             ->whereHas('product', fn ($q) => $q->withoutGlobalScope('cms_draft_flag')
                 ->whereNull('external_source'))
             ->first();
@@ -576,7 +713,8 @@ class SupplierCatalogSync
             // name a product. Leaving them in the keep-set is what would strand the
             // per-row product shells from before grouping was turned on, alive but
             // childless — this is what retires them on the first grouped sync.
-            if ($supplierCategory && !$supplierCategory->group_as_single_product) {
+            // Same for a mapped category, whose rows live under an admin product.
+            if ($supplierCategory && !$supplierCategory->group_as_single_product && !$supplierCategory->product_id) {
                 $keepExternalIds[] = $dto->externalId;
             }
         }
@@ -584,8 +722,9 @@ class SupplierCatalogSync
         // Grouped products are keyed by a synthetic id that never appears in a feed,
         // so nothing else can keep them alive here. Their status follows their
         // variations instead — see reconcileGroupedCategories().
+        // A mapped category no longer feeds its grouped product, so it retires.
         foreach ($enabled as $supplierCategory) {
-            if ($supplierCategory->group_as_single_product) {
+            if ($supplierCategory->group_as_single_product && !$supplierCategory->product_id) {
                 $keepExternalIds[] = self::groupExternalId($supplierCategory);
             }
         }
@@ -655,7 +794,8 @@ class SupplierCatalogSync
         $count = 0;
 
         foreach ($enabled as $supplierCategory) {
-            if (!$supplierCategory->group_as_single_product) {
+            // Mapping wins over grouping (see upsertProduct()).
+            if (!$supplierCategory->group_as_single_product || $supplierCategory->product_id) {
                 continue;
             }
 
@@ -724,6 +864,68 @@ class SupplierCatalogSync
                 $product->supplier_status = $rollup;
                 $product->save();
             }
+        }
+
+        return $count;
+    }
+
+    /**
+     * The mapped-category equivalent of reconcileGroupedCategories(): this
+     * supplier's variations sitting under admin-made products (parent
+     * `external_source` NULL) that no enabled, mapped category listed this run
+     * become WITHDRAWN. One query covers a row dropped from the feed, a category
+     * whose import was disabled, and a mapping cleared while import was off.
+     * A row whose mapping was cleared while still enabled was already moved back
+     * to its own product by upsertVariation() and is no longer under such a parent.
+     *
+     * Only the variation's `supplier_status` is written — never the admin's
+     * product, which listable() hides by itself once nothing in it is for sale.
+     *
+     * @param SupplierProduct[] $products
+     * @param string[]|null $scopes external_id prefixes the connector vouched for
+     */
+    private function reconcileMappedVariations(array $products, $enabled, string $source, ?array $scopes = null): int
+    {
+        // Nothing reachable this run — see markWithdrawnProducts().
+        if ($scopes === []) {
+            return 0;
+        }
+
+        $keepExternalIds = [];
+        foreach ($products as $dto) {
+            $supplierCategory = $enabled->get($dto->categoryExternalId);
+            if ($supplierCategory && $supplierCategory->product_id) {
+                $keepExternalIds[] = $dto->externalId;
+            }
+        }
+
+        $query = ProductsVariation::withoutGlobalScope('cms_draft_flag')
+            ->where('external_source', $source)
+            ->whereNotNull('external_id')
+            ->whereHas('product', fn ($q) => $q->withoutGlobalScope('cms_draft_flag')
+                ->whereNull('external_source'))
+            ->where(function ($q) {
+                $q->whereNull('supplier_status')
+                    ->orWhere('supplier_status', '!=', Product::SUPPLIER_WITHDRAWN);
+            });
+
+        if (!empty($scopes)) {
+            $query->where(function ($q) use ($scopes) {
+                foreach ($scopes as $prefix) {
+                    $q->orWhere('external_id', 'like', $prefix . '%');
+                }
+            });
+        }
+
+        if (!empty($keepExternalIds)) {
+            $query->whereNotIn('external_id', $keepExternalIds);
+        }
+
+        $count = 0;
+        foreach ($query->get() as $variation) {
+            $variation->supplier_status = Product::SUPPLIER_WITHDRAWN;
+            $variation->save();
+            $count++;
         }
 
         return $count;

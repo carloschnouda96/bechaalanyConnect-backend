@@ -7,6 +7,7 @@ use Hellotreedigital\Cms\Models\AdminRole;
 use Hellotreedigital\Cms\Models\AdminRolePermission;
 use Hellotreedigital\Cms\Models\CmsPage;
 use Illuminate\Pagination\LengthAwarePaginator;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -88,7 +89,7 @@ class AdminPagesRenderTest extends TestCase
         return '/' . config('hellotree.cms_route_prefix') . '/' . $route;
     }
 
-    /** @dataProvider paginatedPages */
+    #[DataProvider('paginatedPages')]
     public function test_a_paginated_list_page_renders(string $route): void
     {
         $this->actingAs($this->superAdmin(), 'admin')
@@ -159,7 +160,7 @@ class AdminPagesRenderTest extends TestCase
         $this->assertStringContainsString('.bulk-status .select2-container', $head);
     }
 
-    /** @dataProvider customPages */
+    #[DataProvider('customPages')]
     public function test_a_custom_page_renders_for_a_super_admin(string $route): void
     {
         $this->actingAs($this->superAdmin(), 'admin')
@@ -170,9 +171,8 @@ class AdminPagesRenderTest extends TestCase
     /**
      * The one that matters: a role-limited admin must not get a 403 from
      * AdminMiddleware for want of a cms_pages row.
-     *
-     * @dataProvider customPages
      */
+    #[DataProvider('customPages')]
     public function test_a_custom_page_renders_for_a_restricted_admin(string $route): void
     {
         $admin = $this->restrictedAdmin(array_merge(self::CUSTOM, self::PAGINATED));

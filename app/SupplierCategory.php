@@ -49,5 +49,11 @@ class SupplierCategory extends Model
     {
         return $this->belongsTo(Subcategory::class, 'subcategory_id');
     }
+
+    /** The admin-made product this category's rows are imported into, if mapped. */
+    public function product()
+    {
+        return $this->belongsTo(Product::class, 'product_id');
+    }
     /* End custom functions */
 }
