@@ -12,6 +12,7 @@ use App\Services\Usharez\UsharezBusinessException;
 use App\Services\Usharez\UsharezClient;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -38,6 +39,15 @@ class UsharezConnectorTest extends TestCase
 
     private const RATE = 89500.0;
 
+    /** POST /api/v2/quota/admin/allocate, as documented (HTTP 202). */
+    private const ACCEPTED = [
+        'success' => true,
+        'jobId' => 'JOB_1',
+        'status' => 'queued',
+        'pollUrl' => 'https://bechaalanyconnect.usharez.com/api/v2/quota/admin/status/JOB_1',
+        'data' => ['phone_number' => '03123456', 'quota_size' => 11],
+    ];
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -47,6 +57,7 @@ class UsharezConnectorTest extends TestCase
             'services.usharez.enabled' => true,
             'services.usharez.lbp_per_usd' => self::RATE,
             'services.usharez.quota_enabled' => true,
+            'services.usharez.quota_async' => true,
             'services.usharez.gifts_enabled' => false,
             'services.usharez.gifts_currency' => 'usd',
             'services.usharez.gift_max_qty' => 10,
@@ -195,20 +206,23 @@ class UsharezConnectorTest extends TestCase
 
     // ----------------------------------------------------------------- ordering
 
-    public function test_place_quota_order_posts_normalised_phone_and_integer_size(): void
+    /** v2: the 202 carries a jobId, stored family-prefixed so checkOrder can poll it. */
+    public function test_place_quota_order_posts_to_v2_and_returns_a_pollable_pending_job(): void
     {
-        Http::fake(['*' => Http::response(['success' => true, 'message' => 'Allocated'], 200)]);
+        Http::fake(['*' => Http::response(self::ACCEPTED, 202)]);
 
         $result = $this->connector()->placeOrder(
             $this->order(['recipient_phone_number' => '03 123 456', 'quantity' => 1]),
             $this->variation('quota:11')
         );
 
-        $this->assertSame(SupplierOrderResult::COMPLETED, $result->status);
-        $this->assertNotNull($result->externalOrderId);
+        $this->assertSame(SupplierOrderResult::PENDING, $result->status);
+        $this->assertSame('quota:JOB_1', $result->externalOrderId);
+        $this->assertSame('JOB_1', $result->raw['jobId']);
 
         Http::assertSent(function ($request) {
-            return str_contains($request->url(), '/api/quota/admin/allocate')
+            return $request->method() === 'POST'
+                && str_contains($request->url(), '/api/v2/quota/admin/allocate')
                 && $request['phoneNumber'] === '03123456'
                 && $request['quotaSize'] === 11          // int, as the docs show
                 && $request->hasHeader('Authorization', 'Bearer test-token');
@@ -217,7 +231,7 @@ class UsharezConnectorTest extends TestCase
 
     public function test_place_quota_order_sends_float_for_fractional_size(): void
     {
-        Http::fake(['*' => Http::response(['success' => true], 200)]);
+        Http::fake(['*' => Http::response(self::ACCEPTED, 202)]);
 
         $this->connector()->placeOrder(
             $this->order(['recipient_phone_number' => '03123456', 'quantity' => 1]),
@@ -228,12 +242,47 @@ class UsharezConnectorTest extends TestCase
     }
 
     /**
-     * usharez returns no order id, and SupplierOrderFulfillment::fulfill() treats a
+     * Accepted but no jobId: a job may exist, so it is parked PENDING under the
+     * synthetic id — never refunded, never re-sent, and never polled.
+     */
+    public function test_accepted_without_job_id_is_parked_pending_with_synthetic_id(): void
+    {
+        Http::fake(['*' => Http::response(['success' => true, 'status' => 'queued'], 202)]);
+
+        $result = $this->connector()->placeOrder(
+            $this->order(['recipient_phone_number' => '03123456', 'quantity' => 1, 'external_order_uuid' => 'uuid-7']),
+            $this->variation('quota:11')
+        );
+
+        $this->assertSame(SupplierOrderResult::PENDING, $result->status);
+        $this->assertSame('usharez-uuid-7', $result->externalOrderId);
+        $this->assertTrue($result->raw['usharez_indeterminate']);
+    }
+
+    /** USHAREZ_QUOTA_ASYNC=false is the rollback to the v1 synchronous call. */
+    public function test_v1_rollback_posts_synchronously_and_completes(): void
+    {
+        config(['services.usharez.quota_async' => false]);
+        Http::fake(['*' => Http::response(['success' => true, 'message' => 'Allocated'], 200)]);
+
+        $result = $this->connector()->placeOrder(
+            $this->order(['recipient_phone_number' => '03123456', 'quantity' => 1]),
+            $this->variation('quota:11')
+        );
+
+        $this->assertSame(SupplierOrderResult::COMPLETED, $result->status);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/api/quota/admin/allocate'));
+        Http::assertNotSent(fn ($request) => str_contains($request->url(), '/api/v2/'));
+    }
+
+    /**
+     * v1 returns no order id, and SupplierOrderFulfillment::fulfill() treats a
      * non-null external_order_id as its only re-entry guard — so a null here would
      * let a job retry re-POST and double-charge.
      */
     public function test_synthetic_order_id_is_derived_from_the_dedupe_uuid(): void
     {
+        config(['services.usharez.quota_async' => false]);
         Http::fake(['*' => Http::response(['success' => true], 200)]);
 
         $order = $this->order([
@@ -250,6 +299,7 @@ class UsharezConnectorTest extends TestCase
     /** When the API does return an id-ish field, prefer it over the synthetic one. */
     public function test_supplier_order_id_is_preferred_when_present(): void
     {
+        config(['services.usharez.quota_async' => false]);
         Http::fake(['*' => Http::response(['success' => true, 'data' => ['id' => 9911]], 200)]);
 
         $result = $this->connector()->placeOrder(
@@ -396,7 +446,7 @@ class UsharezConnectorTest extends TestCase
         });
     }
 
-    /** There is no status endpoint — checkOrder must never hit the network. */
+    /** A synthetic (indeterminate) id is not a job — checkOrder must never hit the network. */
     public function test_check_order_makes_no_http_call_and_echoes_status(): void
     {
         Http::fake();
@@ -413,6 +463,144 @@ class UsharezConnectorTest extends TestCase
         Http::assertNothingSent();
     }
 
+    /** Gift orders are synchronous; their ids are never polled either. */
+    public function test_check_order_does_not_poll_gift_orders(): void
+    {
+        Http::fake();
+
+        $result = $this->connector()->checkOrder(
+            $this->placedOrder('usharez-uuid-3', SupplierOrderResult::COMPLETED)
+        );
+
+        $this->assertSame(SupplierOrderResult::COMPLETED, $result->status);
+        Http::assertNothingSent();
+    }
+
+    #[DataProvider('jobStatusProvider')]
+    public function test_check_order_maps_job_status(string $jobStatus, bool $refunded, string $expected): void
+    {
+        Http::fake(['*' => Http::response($this->jobStatus($jobStatus, ['refunded' => $refunded]), 200)]);
+
+        $result = $this->connector()->checkOrder($this->placedOrder('quota:JOB_1'));
+
+        $this->assertSame($expected, $result->status);
+        $this->assertSame('quota:JOB_1', $result->externalOrderId);
+        Http::assertSent(fn ($request) => $request->method() === 'GET'
+            && str_ends_with($request->url(), '/api/v2/quota/admin/status/JOB_1'));
+    }
+
+    public static function jobStatusProvider(): array
+    {
+        return [
+            'queued'               => ['queued', false, SupplierOrderResult::PENDING],
+            'processing'           => ['processing', false, SupplierOrderResult::PENDING],
+            'retrying'             => ['retrying', false, SupplierOrderResult::PENDING],
+            'succeeded'            => ['succeeded', false, SupplierOrderResult::COMPLETED],
+            'rejected'             => ['rejected', true, SupplierOrderResult::FAILED],
+            'failed, not refunded' => ['failed', false, SupplierOrderResult::FAILED],
+            'stopped, refunded'    => ['stopped', true, SupplierOrderResult::FAILED],
+            'stopped, kept'        => ['stopped', false, SupplierOrderResult::PENDING],
+            'unknown status'       => ['mystery', false, SupplierOrderResult::PENDING],
+        ];
+    }
+
+    /** The admin number is what the customer texts to 1323 — it must reach orders.code as an <li>. */
+    public function test_succeeded_job_writes_the_admin_number_to_the_order_code(): void
+    {
+        Http::fake(['*' => Http::response($this->jobStatus('succeeded', [
+            'allocated_admin' => ['phone_number' => '03987654'],
+        ]), 200)]);
+
+        $order = $this->placedOrder('quota:JOB_1');
+        $this->connector()->checkOrder($order);
+
+        $this->assertSame(
+            '<ul><li>03987654</li></ul><p data-note="' . UsharezConnector::NOTE_TEXT_1323 . '"></p>',
+            $order->code
+        );
+    }
+
+    public function test_admin_number_is_html_escaped(): void
+    {
+        Http::fake(['*' => Http::response($this->jobStatus('succeeded', [
+            'allocated_admin' => ['phone_number' => '<b>03</b>'],
+        ]), 200)]);
+
+        $order = $this->placedOrder('quota:JOB_1');
+        $this->connector()->checkOrder($order);
+
+        $this->assertStringContainsString('<li>&lt;b&gt;03&lt;/b&gt;</li>', $order->code);
+    }
+
+    public function test_pending_job_leaves_the_order_code_alone(): void
+    {
+        Http::fake(['*' => Http::response($this->jobStatus('processing'), 200)]);
+
+        $order = $this->placedOrder('quota:JOB_1');
+        $this->connector()->checkOrder($order);
+
+        $this->assertNull($order->code);
+    }
+
+    /** A rejected job reported inside a success:false envelope is an answer, not a failed request. */
+    public function test_rejected_job_in_success_false_envelope_maps_to_failed(): void
+    {
+        Http::fake(['*' => Http::response(
+            ['success' => false] + $this->jobStatus('rejected', ['error' => 'Line not eligible', 'refunded' => true]),
+            200
+        )]);
+
+        $result = $this->connector()->checkOrder($this->placedOrder('quota:JOB_1'));
+
+        $this->assertSame(SupplierOrderResult::FAILED, $result->status);
+        $this->assertSame('Line not eligible', $result->raw['data']['error']);
+    }
+
+    /** A failed lookup is not a failed recharge — never refund on it. */
+    public function test_job_lookup_404_keeps_the_stored_status(): void
+    {
+        Http::fake(['*' => Http::response(['success' => false, 'message' => 'Job not found'], 404)]);
+
+        $order = $this->placedOrder('quota:JOB_1');
+        $order->external_response = self::ACCEPTED;
+
+        $result = $this->connector()->checkOrder($order);
+
+        $this->assertSame(SupplierOrderResult::PENDING, $result->status);
+        $this->assertSame(self::ACCEPTED, $result->raw);
+    }
+
+    /** 5xx on a poll propagates; the check command logs it and the next run retries. */
+    public function test_job_lookup_server_error_throws(): void
+    {
+        Http::fake(['*' => Http::response('down', 503)]);
+
+        $this->expectException(SupplierApiException::class);
+        $this->connector()->checkOrder($this->placedOrder('quota:JOB_1'));
+    }
+
+    /** A jobId that is not a plain token is never interpolated into a URL. */
+    public function test_malformed_job_id_is_not_polled(): void
+    {
+        Http::fake();
+
+        $result = $this->connector()->checkOrder($this->placedOrder('quota:../user/balance'));
+
+        $this->assertSame(SupplierOrderResult::PENDING, $result->status);
+        Http::assertNothingSent();
+    }
+
+    /** stopped + not refunded is flagged so the critical log fires once, not every 5 minutes. */
+    public function test_stopped_without_refund_is_flagged_for_review(): void
+    {
+        Http::fake(['*' => Http::response($this->jobStatus('stopped', ['refunded' => false]), 200)]);
+
+        $result = $this->connector()->checkOrder($this->placedOrder('quota:JOB_1'));
+
+        $this->assertSame(SupplierOrderResult::PENDING, $result->status);
+        $this->assertTrue($result->raw['usharez_needs_review']);
+    }
+
     public function test_balance_converts_lbp_to_usd(): void
     {
         Http::fake(['*' => Http::response(['balance' => 1500000, 'debt_allowance' => 500000], 200)]);
@@ -420,14 +608,27 @@ class UsharezConnectorTest extends TestCase
         $this->assertSame(round(1500000 / self::RATE, 4), $this->connector()->balance());
     }
 
+    public function test_credit_line_converts_debt_allowance_to_usd(): void
+    {
+        Http::fake(['*' => Http::response(['balance' => 1500000, 'debt_allowance' => 500000], 200)]);
+
+        $this->assertSame(round(500000 / self::RATE, 4), $this->connector()->creditLine());
+    }
+
+    public function test_credit_line_is_null_when_not_reported(): void
+    {
+        Http::fake(['*' => Http::response(['balance' => 1500000], 200)]);
+
+        $this->assertNull($this->connector()->creditLine());
+    }
+
     // -------------------------------------------------------------- normalisation
 
     /**
      * Lebanese mobile numbers are 8 national digits; the leading 0 belongs to the
      * operator prefix and international form drops it.
-     *
-     * @dataProvider phoneProvider
      */
+    #[DataProvider('phoneProvider')]
     public function test_phone_normalisation_variants(string $input, ?string $expected): void
     {
         Http::fake(['*' => Http::response(['success' => true], 200)]);
@@ -496,6 +697,36 @@ class UsharezConnectorTest extends TestCase
         }
 
         return $order;
+    }
+
+    /** An order already handed to usharez, as fulfill() leaves it. */
+    private function placedOrder(string $externalOrderId, string $status = SupplierOrderResult::PENDING): Order
+    {
+        $order = $this->order(['quantity' => 1, 'external_order_uuid' => 'uuid-1']);
+        $order->external_order_id = $externalOrderId;
+        $order->external_status = $status;
+        $order->external_response = [];
+
+        return $order;
+    }
+
+    /** GET /api/v2/quota/admin/status/{jobId}, as documented. */
+    private function jobStatus(string $status, array $data = []): array
+    {
+        return [
+            'success' => true,
+            'jobId' => 'JOB_1',
+            'status' => $status,
+            'current_step' => null,
+            'data' => $data + [
+                'phone_number' => '03123456',
+                'quota_size' => 11,
+                'attempts' => 1,
+                'allocated_admin' => null,
+                'error' => null,
+                'refunded' => false,
+            ],
+        ];
     }
 
     private function variation(string $externalId): ProductsVariation

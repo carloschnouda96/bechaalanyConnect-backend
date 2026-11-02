@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Cms;
 
 use App\Http\Controllers\Controller;
+use App\Http\Controllers\OrderController;
 use App\ProductsVariation;
 use App\Services\Cms\VariationPricing;
 use Hellotreedigital\Cms\Controllers\CmsPageController;
@@ -38,6 +39,7 @@ class VariationFormController extends Controller
 
     public function store(Request $request)
     {
+        $this->validateQuantityBounds($request);
         $mode = $this->validatedMode($request, null);
 
         if ($mode === 'percent') {
@@ -66,6 +68,7 @@ class VariationFormController extends Controller
     public function update(Request $request, $id)
     {
         $existing = ProductsVariation::withoutGlobalScope('cms_draft_flag')->findOrFail($id);
+        $this->validateQuantityBounds($request);
         $mode = $this->validatedMode($request, $existing);
 
         $redirect = $this->cms->update($request, $id, 'products-variations');
@@ -77,6 +80,42 @@ class VariationFormController extends Controller
         }
 
         return $this->redirectFor($request, $variation, $redirect);
+    }
+
+    /**
+     * `min_quantity` and `max_quantity` are in the same unit as `orders.quantity`: coins for a Coin
+     * Recharge product, units otherwise. A bound above the most one order may hold
+     * (OrderController::MAX_COINS / MAX_QUANTITY) would make the variation
+     * impossible to buy.
+     */
+    private function validateQuantityBounds(Request $request): void
+    {
+        if (!$request->filled('min_quantity') && !$request->filled('max_quantity')) {
+            return;
+        }
+
+        $request->validate([
+            'min_quantity' => ['nullable', 'integer', 'min:1'],
+            'max_quantity' => ['nullable', 'integer', 'min:1'],
+        ]);
+
+        $productType = (int) optional(\App\Product::find($request->input('product_id')))->product_type_id;
+        $max = in_array($productType, [\App\Product::TYPE_COIN, \App\Product::TYPE_SOCIAL], true) ? OrderController::MAX_COINS : OrderController::MAX_QUANTITY;
+
+        foreach (['min_quantity' => 'minimum', 'max_quantity' => 'maximum'] as $field => $word) {
+            if ($request->filled($field) && (int) $request->input($field) > $max) {
+                throw ValidationException::withMessages([
+                    $field => 'The ' . $word . ' cannot exceed ' . number_format($max) . '.',
+                ]);
+            }
+        }
+
+        if ($request->filled('min_quantity') && $request->filled('max_quantity')
+            && (int) $request->input('max_quantity') < (int) $request->input('min_quantity')) {
+            throw ValidationException::withMessages([
+                'max_quantity' => 'The maximum cannot be lower than the minimum.',
+            ]);
+        }
     }
 
     /** @return string|null 'percent' | 'fixed', or null when the form did not send one */
@@ -138,7 +177,9 @@ class VariationFormController extends Controller
             ? (float) $request->input('profit_percentage')
             : $this->pricing->defaultProfit();
 
-        return ProductsVariation::computeSellingPrice((float) $request->input('cost_price'), $percentage);
+        $unit = max(1, (int) $request->input('unit_amount'));
+
+        return ProductsVariation::computeSellingPrice((float) $request->input('cost_price') * $unit, $percentage);
     }
 
     /**

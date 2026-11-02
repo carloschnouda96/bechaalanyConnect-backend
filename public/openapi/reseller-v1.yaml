@@ -1,0 +1,519 @@
+openapi: 3.0.3
+info:
+  title: BechaalanyConnect Reseller API
+  version: "1.0"
+  description: |
+    Buy BechaalanyConnect digital products (game top-ups, vouchers, mobile
+    recharges, social media services, …) directly from your own store.
+
+    ## Getting access
+    1. Create a BechaalanyConnect account and complete account verification (KYC).
+    2. Ask us to enable **API access** on your account.
+    3. Sign in, open **Account → API keys**, and create a key. The full key is shown
+       **once** — store it securely. You can restrict a key to your server's IP addresses.
+
+    ## Authentication
+    Send your key as a bearer token on every request:
+
+    ```
+    Authorization: Bearer bc_live_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+    ```
+
+    A missing, revoked or disabled key, or a call from an IP the key does not
+    allow, returns `401 unauthenticated`.
+
+    ## Money
+    Orders are paid from your BechaalanyConnect **credits balance** (USD). Top it up
+    from the website the same way as any customer. The `price` you see on each
+    variation is **your** price — your account's pricing tier is already applied.
+
+    ## Placing an order safely
+    Every `POST /v1/orders` must carry a **`client_order_id`** — your own unique
+    reference for that purchase (e.g. your order number). If the request times out
+    or you are unsure whether it went through, **send exactly the same request
+    again**: the original order is returned (HTTP `200` instead of `201`) and you
+    are never charged twice.
+
+    ## Order lifecycle
+    | `status` | Meaning |
+    |---|---|
+    | `pending` | Paid and being processed. |
+    | `completed` | Delivered. Any voucher codes / PINs are in `codes`. |
+    | `rejected` | Could not be delivered. The full amount has been **refunded** to your balance. |
+
+    Most automatically-fulfilled products complete within seconds to a few minutes;
+    some products are handled by our team and can take longer. Either set a
+    **webhook** (below) and we will tell you, or poll `GET /v1/orders/{id}` — we
+    recommend every **10–30 seconds**, backing off to every few minutes after the
+    first 5 minutes.
+
+    ## Webhooks
+    Instead of polling, set a webhook URL on **Account → API keys**. When one of
+    your API orders reaches a final state we `POST` an event to it:
+
+    | Event | Sent when |
+    |---|---|
+    | `order.completed` | The order was delivered. For automatically-fulfilled products this is once the supplier confirms delivery, so `codes` are included. |
+    | `order.rejected` | The order could not be delivered and was **refunded** to your balance. |
+
+    The body is a JSON object (schema `WebhookEvent`). `data` is exactly what
+    `GET /v1/orders/{id}` would return at that moment:
+
+    ```json
+    {
+      "id": "evt_8f14e45fceea167a5a36dedd4bea2543",
+      "type": "order.completed",
+      "created_at": "2026-10-27T12:00:05+00:00",
+      "data": { "id": 30211, "client_order_id": "SHOP-10045", "status": "completed", "codes": ["XXXX-YYYY-ZZZZ"], "...": "..." }
+    }
+    ```
+
+    Only orders placed through this API (`POST /v1/orders`) produce events —
+    not purchases made on the website. The URL must be `https` on a public
+    address; private, loopback and link-local addresses are refused, and
+    redirects are not followed. Each request carries these headers:
+
+    | Header | Value |
+    |---|---|
+    | `X-Bechaalany-Event` | The event type, e.g. `order.completed`. |
+    | `X-Bechaalany-Event-Id` | Same as the body's `id`. |
+    | `X-Bechaalany-Signature` | `t=<unix timestamp>,v1=<signature>` |
+
+    ### Verifying the signature
+    When you add the webhook you receive a **signing secret** (`whsec_…`), shown
+    once — you can rotate it on the same page. To verify a request:
+
+    1. Read the **raw** request body, before any JSON parsing.
+    2. Split `X-Bechaalany-Signature` on `,` to get `t` and `v1`.
+    3. Compute `HMAC-SHA256(secret, t + "." + raw_body)` as lowercase hex.
+    4. Compare it to `v1` with a constant-time comparison, and reject the request
+       if `t` is more than 5 minutes from your clock (replay protection).
+
+    ```php
+    $body = file_get_contents('php://input');
+    parse_str(str_replace(',', '&', $_SERVER['HTTP_X_BECHAALANY_SIGNATURE'] ?? ''), $sig);
+    $expected = hash_hmac('sha256', ($sig['t'] ?? '') . '.' . $body, $secret);
+    $valid = isset($sig['v1']) && hash_equals($expected, $sig['v1'])
+        && abs(time() - (int) $sig['t']) <= 300;
+    ```
+
+    ```js
+    // Node / Express: app.post('/hook', express.raw({ type: 'application/json' }), …)
+    const crypto = require('crypto');
+    const sig = Object.fromEntries(req.get('X-Bechaalany-Signature').split(',').map((p) => p.split('=')));
+    const expected = crypto.createHmac('sha256', secret).update(`${sig.t}.${req.body}`).digest('hex');
+    const valid = sig.v1 && crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(sig.v1))
+      && Math.abs(Date.now() / 1000 - Number(sig.t)) <= 300;
+    ```
+
+    ### Responding and retries
+    Answer with any **2xx** status within **10 seconds**; do the real work
+    afterwards. Anything else — another status, a timeout, a connection error — is
+    retried up to **8 attempts** in total, waiting about 30 s, 2 min, 10 min,
+    30 min, 1 h, 2 h and 4 h between them (roughly 8 hours). After that the event
+    is dropped; `GET /v1/orders/{id}` always has the current state. The first
+    attempt is usually made within a minute of the status change.
+
+    Delivery is **at least once**, and events are not guaranteed to arrive in
+    order: deduplicate on the event `id` (or on order `id` + `status`), and treat
+    a `GET /v1/orders/{id}` as the source of truth if in doubt. The **Send test
+    event** button on the API keys page sends a signed `ping` event (empty
+    `data`) so you can check your verification code. The page also shows the
+    result of the latest delivery.
+
+    ## Languages
+    Product names and error messages are returned in English by default. Add
+    `?lang=ar` (or send `Accept-Language: ar`) for Arabic.
+
+    ## Rate limits
+    120 requests per minute per key, of which at most 30 can be `POST /v1/orders`.
+    Exceeding it returns `429` with a `Retry-After` header.
+servers:
+  - url: https://admin.bechaalanyconnect.com/api
+    description: Production
+security:
+  - ApiKey: []
+tags:
+  - name: Account
+  - name: Catalog
+  - name: Orders
+
+x-webhooks:
+  orderStatus:
+    post:
+      tags: [Orders]
+      summary: Order status event (sent to your webhook URL)
+      description: |
+        Sent to your webhook URL when an API order becomes `completed` or
+        `rejected`. Verify `X-Bechaalany-Signature` before trusting it (see
+        **Webhooks** above) and answer any 2xx within 10 seconds.
+      operationId: orderStatusWebhook
+      security: []
+      parameters:
+        - name: X-Bechaalany-Event
+          in: header
+          required: true
+          schema: { type: string, enum: [order.completed, order.rejected, ping] }
+        - name: X-Bechaalany-Event-Id
+          in: header
+          required: true
+          schema: { type: string, example: evt_8f14e45fceea167a5a36dedd4bea2543 }
+        - name: X-Bechaalany-Signature
+          in: header
+          required: true
+          description: '`t=<unix timestamp>,v1=<hex HMAC-SHA256(secret, t + "." + raw body)>`'
+          schema: { type: string, example: "t=1793102405,v1=5257a869e7ecebeda32affa62cdca3fa51cad7e77a0e56ff536d0ce8e108d8bd" }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/WebhookEvent" }
+      responses:
+        "2XX":
+          description: Received. Any other answer, or none within 10 seconds, is retried.
+
+paths:
+  /v1/balance:
+    get:
+      tags: [Account]
+      summary: Get your credits balance
+      operationId: getBalance
+      responses:
+        "200":
+          description: Your current balance.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: object
+                    properties:
+                      balance: { type: number, example: 152.4 }
+                      currency: { type: string, example: USD }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /v1/products:
+    get:
+      tags: [Catalog]
+      summary: List everything you can buy
+      description: |
+        Every product currently for sale, each with its purchasable variations
+        (amounts / packages). Out-of-stock items are left out, so refresh this list
+        periodically (e.g. every hour) rather than caching it forever.
+      operationId: listProducts
+      parameters:
+        - $ref: "#/components/parameters/Lang"
+      responses:
+        "200":
+          description: The catalog.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Product" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /v1/products/{variation_id}:
+    get:
+      tags: [Catalog]
+      summary: Get one variation
+      description: Check a single variation's current price, bounds and availability before ordering.
+      operationId: getVariation
+      parameters:
+        - name: variation_id
+          in: path
+          required: true
+          schema: { type: integer, example: 812 }
+        - $ref: "#/components/parameters/Lang"
+      responses:
+        "200":
+          description: The variation.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Variation" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+  /v1/orders:
+    post:
+      tags: [Orders]
+      summary: Place an order
+      description: |
+        Charges your balance immediately. See **Placing an order safely** above:
+        retrying with the same `client_order_id` returns the original order.
+
+        Which recipient field to send depends on the variation's `required_fields`.
+
+        **Quantity:**
+        - For `coin` and `social` products, `quantity` is the real amount, for example
+          60000 coins or 1000 followers. The cost is `price × quantity ÷ pricing_unit`,
+          rounded up to the cent.
+        - For all other products, `quantity` is the number of units. The cost is
+          `price × quantity`.
+      operationId: placeOrder
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/NewOrder" }
+            examples:
+              game_topup:
+                summary: Game top-up (player id)
+                value: { variation_id: 812, quantity: 1, recipient_user: "5123456789", client_order_id: "SHOP-10045" }
+              voucher:
+                summary: Voucher code (no recipient)
+                value: { variation_id: 455, quantity: 2, client_order_id: "SHOP-10046" }
+              mobile:
+                summary: Mobile recharge (phone number)
+                value: { variation_id: 973, quantity: 1, recipient_phone_number: "+96171123456", client_order_id: "SHOP-10047" }
+      responses:
+        "201":
+          description: Order created and paid.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Order" }
+        "200":
+          description: An order with this `client_order_id` already exists — it is returned unchanged and nothing is charged.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Order" }
+        "400":
+          description: Not enough credits (`insufficient_credits`). Nothing was charged.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: insufficient_credits, message: "Not enough credits to place this order.", balance: 3.5, required: 10, missing: 6.5 }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "403":
+          description: Your account verification is not approved (`kyc_required`).
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+        "422":
+          description: |
+            The order was refused and nothing was charged. Possible `code` values:
+            - `validation_failed`: a field is missing or malformed. See `fields`.
+            - `product_unavailable`: the variation is not for sale right now.
+            - `recipient_user_required` / `recipient_phone_required`: the variation needs that field.
+            - `below_min_quantity` / `above_max_quantity`: the quantity is outside the allowed range. The limit is in `min_quantity` / `max_quantity`.
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Error" }
+              example:
+                error: { code: below_min_quantity, message: "The minimum for this product is 10,000 Coins.", min_quantity: 10000 }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+    get:
+      tags: [Orders]
+      summary: List your orders
+      operationId: listOrders
+      parameters:
+        - name: client_order_id
+          in: query
+          description: Find the order you placed with this reference.
+          schema: { type: string }
+        - name: status
+          in: query
+          schema: { type: string, enum: [pending, completed, rejected] }
+        - name: page
+          in: query
+          schema: { type: integer, default: 1 }
+        - name: per_page
+          in: query
+          schema: { type: integer, default: 20, maximum: 100 }
+      responses:
+        "200":
+          description: Your orders, newest first.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    type: array
+                    items: { $ref: "#/components/schemas/Order" }
+                  meta:
+                    type: object
+                    properties:
+                      current_page: { type: integer }
+                      per_page: { type: integer }
+                      last_page: { type: integer }
+                      total: { type: integer }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+
+  /v1/orders/{id}:
+    get:
+      tags: [Orders]
+      summary: Get one order (poll this for its status)
+      operationId: getOrder
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema: { type: integer, example: 30211 }
+      responses:
+        "200":
+          description: The order.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data: { $ref: "#/components/schemas/Order" }
+        "401": { $ref: "#/components/responses/Unauthenticated" }
+        "404": { $ref: "#/components/responses/NotFound" }
+
+components:
+  securitySchemes:
+    ApiKey:
+      type: http
+      scheme: bearer
+      bearerFormat: bc_live_…
+
+  parameters:
+    Lang:
+      name: lang
+      in: query
+      schema: { type: string, enum: [en, ar], default: en }
+
+  responses:
+    Unauthenticated:
+      description: Missing, invalid, revoked or disabled API key, or an IP the key does not allow.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: unauthenticated, message: "Missing, invalid or disabled API key." }
+    NotFound:
+      description: Not found (or not yours).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          example:
+            error: { code: not_found, message: "Order not found." }
+    TooManyRequests:
+      description: Rate limit exceeded. Wait for `Retry-After` seconds.
+
+  schemas:
+    Product:
+      type: object
+      properties:
+        id: { type: integer, example: 120 }
+        name: { type: string, example: PUBG Mobile UC }
+        category: { type: string, nullable: true, example: Games }
+        subcategory: { type: string, nullable: true, example: PUBG }
+        type: { $ref: "#/components/schemas/ProductType" }
+        image: { type: string, nullable: true, format: uri }
+        variations:
+          type: array
+          items: { $ref: "#/components/schemas/Variation" }
+
+    ProductType:
+      type: string
+      enum: [user_id, code, phone, coin, social]
+      description: |
+        - `user_id`: delivered straight to a game or app account. Send `recipient_user`.
+        - `code`: you receive a voucher code or PIN in `codes`. No recipient is needed.
+        - `phone`: a mobile recharge. Send `recipient_phone_number`.
+        - `coin`: any number of coins, delivered to a player account. Send `recipient_user`, and set `quantity` to the number of coins.
+        - `social`: a social media service. Send the post or profile link in `recipient_user`, and set `quantity` to the amount.
+
+    Variation:
+      type: object
+      properties:
+        id: { type: integer, example: 812, description: "Use this as `variation_id` when ordering." }
+        product_id: { type: integer, example: 120 }
+        product_name: { type: string, example: PUBG Mobile UC }
+        name: { type: string, example: 660 UC }
+        type: { $ref: "#/components/schemas/ProductType" }
+        description: { type: string, nullable: true }
+        price:
+          type: number
+          example: 9.5
+          description: Your price in USD, per `pricing_unit` units.
+        pricing_unit:
+          type: integer
+          example: 1
+          description: "1 for most products. For `coin` and `social` products, `price` covers this many units (e.g. 1000)."
+        unit_label: { type: string, nullable: true, example: Coins }
+        min_quantity: { type: integer, example: 1 }
+        max_quantity: { type: integer, example: 100 }
+        required_fields:
+          type: array
+          items: { type: string, enum: [recipient_user, recipient_phone_number] }
+          example: [recipient_user]
+
+    NewOrder:
+      type: object
+      required: [variation_id, quantity, client_order_id]
+      properties:
+        variation_id: { type: integer, example: 812 }
+        quantity: { type: integer, minimum: 1, example: 1 }
+        recipient_user:
+          type: string
+          maxLength: 255
+          description: Player/account id, or the link for `social` products.
+        recipient_phone_number:
+          type: string
+          pattern: '^\+?[0-9]{7,15}$'
+          example: "+96171123456"
+        client_order_id:
+          type: string
+          maxLength: 191
+          description: Your unique reference for this purchase. Re-sending it never charges twice.
+          example: SHOP-10045
+
+    Order:
+      type: object
+      properties:
+        id: { type: integer, example: 30211 }
+        client_order_id: { type: string, nullable: true, example: SHOP-10045 }
+        status: { type: string, enum: [pending, completed, rejected] }
+        variation_id: { type: integer, example: 812 }
+        product_name: { type: string, nullable: true, example: PUBG Mobile UC }
+        variation_name: { type: string, nullable: true, example: 660 UC }
+        quantity: { type: integer, example: 1 }
+        total_price: { type: number, example: 9.5, description: Amount charged in USD. }
+        recipient_user: { type: string, nullable: true }
+        recipient_phone_number: { type: string, nullable: true }
+        codes:
+          type: array
+          items: { type: string }
+          description: Voucher codes / PINs, once `completed`. Empty for products delivered to an account.
+          example: ["XXXX-YYYY-ZZZZ"]
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    WebhookEvent:
+      type: object
+      properties:
+        id: { type: string, example: evt_8f14e45fceea167a5a36dedd4bea2543, description: "Unique per event and identical on every retry of it. Deduplicate on it." }
+        type: { type: string, enum: [order.completed, order.rejected, ping] }
+        created_at: { type: string, format: date-time, description: When the status change happened (not when this attempt was sent). }
+        data:
+          allOf: [{ $ref: "#/components/schemas/Order" }]
+          description: The order, as `GET /v1/orders/{id}` returned it when the event happened. Empty for `ping`.
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code: { type: string, example: insufficient_credits }
+            message: { type: string }
+          additionalProperties: true

@@ -31,6 +31,8 @@ return [
         'phone_required' => 'A phone number is required for this product.',
         'user_id_required' => 'A user ID is required for this product.',
         'insufficient_credits' => 'Not enough credits to place this order.',
+        'min_quantity' => 'The minimum for this product is :min.',
+        'max_quantity' => 'The maximum for this product is :max.',
         'invalid_phone' => 'Enter a valid phone number (7-15 digits, optional leading +).',
     ],
 
@@ -76,5 +78,16 @@ return [
         'reset_link_sent' => 'If that email is registered, a reset link is on its way.',
         'reset_link_invalid' => 'This password reset link is invalid or has expired. Please request a new one.',
         'password_reset' => 'Password reset successfully.',
+    ],
+
+    'api_keys' => [
+        'not_enabled' => 'API access is not enabled for your account. Contact us to enable it.',
+        'limit' => 'You can have at most :max active API keys. Revoke one first.',
+        'revoked' => 'API key revoked.',
+        'webhook_saved' => 'Webhook saved.',
+        'webhook_removed' => 'Webhook removed.',
+        'webhook_missing' => 'Set a webhook URL first.',
+        'webhook_test_sent' => 'Test event delivered (HTTP :status).',
+        'webhook_test_failed' => 'Test event was not accepted: :error',
     ],
 ];

@@ -2,20 +2,24 @@
 
 namespace App\Http\Controllers;
 
-use App\CreditLedgerEntry;
 use App\FixedSetting;
-use App\Models\User;
 use App\Order;
-use App\ProductsVariation;
-use App\Services\Credits\CreditLedger;
+use App\Services\Orders\OrderPlacement;
+use App\Services\Orders\OrderPlacementException;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 
 class OrderController extends Controller
 {
+    /** Most units a single order may hold (non-coin products). */
+    public const MAX_QUANTITY = 100;
+
+    /**
+     * Most coins a single Coin Recharge order may hold when the supplier reports no
+     * max of its own. Coin orders carry the real coin count in `quantity`.
+     */
+    public const MAX_COINS = 10000000;
+
     function getAdminEmail()
     {
         // Was FixedSetting::first()->admin_email, which fataled when the settings
@@ -84,24 +88,22 @@ class OrderController extends Controller
         return response()->json($order);
     }
 
-    public function saveOrder(Request $request)
+    public function saveOrder(Request $request, OrderPlacement $placement)
     {
-        $requestedLocale = app()->getLocale();
-
         $validatedData = $request->validate([
             // Just existence here — "is this actually sellable" (is_active AND
             // supplier stock, on both the variation and its product) is a combined
             // rule (ProductsVariation::scopeSellable()) that Rule::exists can't
-            // express as a single `where`, so it's checked below via sellable()
-            // instead, with its own message/code.
+            // express as a single `where`, so OrderPlacement checks it via
+            // sellable() instead, with its own message/code.
             'product_variation_id' => [
                 'required',
                 'integer',
                 Rule::exists('products_variations', 'id'),
             ],
-            // `max` added: quantity was unbounded, so a single request could debit an
-            // arbitrarily large amount and place an absurd order at the supplier.
-            'quantity' => ['required', 'integer', 'min:1', 'max:100'],
+            // Bounded by the largest per-product cap here; the real per-variation max
+            // (100 units, or the coin max) is checked once the variation is loaded.
+            'quantity' => ['required', 'integer', 'min:1', 'max:' . self::MAX_COINS],
             'recipient_user' => ['nullable', 'string', 'max:255'],
             // Suppliers require a real MSISDN; this previously accepted any string.
             'recipient_phone_number' => ['nullable', 'string', 'regex:/^\+?[0-9]{7,15}$/'],
@@ -110,146 +112,19 @@ class OrderController extends Controller
             'recipient_phone_number.regex' => __('api.orders.invalid_phone'),
         ]);
 
-        $user = $request->user();
-
-        if ($user->verification_status !== 'approved') {
-            return response()->json([
-                'message' => __('api.orders.kyc_required'),
-                'code' => 'kyc_required',
-            ], 403);
-        }
-
-        // sellable() combines is_active with supplier stock on both the variation
-        // and its parent product (Product::scopeSellable()) — a variation whose
-        // own row is on but whose product is off (or out of stock, or withdrawn)
-        // is caught in this one query instead of a separate follow-up check.
-        $variation = ProductsVariation::sellable()
-            ->with(['priceVariations', 'product'])
-            ->find($validatedData['product_variation_id']);
-
-        if (!$variation) {
-            return response()->json([
-                'message' => __('api.orders.unavailable'),
-                'code' => 'product_unavailable',
-            ], 422);
-        }
-
-        // Recipient requirements mirror the storefront purchase form and what the
-        // supplier connectors actually need:
-        //   type 1 Direct Recharge   → account/player id  (recipient_user)
-        //   type 3 phone-based       → MSISDN             (recipient_phone_number)
-        // Enforced server-side too, because a missing recipient means the supplier
-        // call fails after the user has already been debited.
-        $productType = (int) ($variation->product->product_type_id ?? 0);
-
-        if ($productType === 3 && blank($validatedData['recipient_phone_number'] ?? null)) {
-            return response()->json([
-                'message' => __('api.orders.phone_required'),
-                'code' => 'recipient_phone_required',
-            ], 422);
-        }
-
-        if ($productType === 1 && blank($validatedData['recipient_user'] ?? null)) {
-            return response()->json([
-                'message' => __('api.orders.user_id_required'),
-                'code' => 'recipient_user_required',
-            ], 422);
-        }
-
-        // Price is determined server-side: user-type price variation, else base price
-        $unitPrice = $variation->price;
-        if ($user->user_types_id) {
-            $match = $variation->priceVariations->firstWhere('user_types_id', $user->user_types_id);
-            if ($match) {
-                $unitPrice = $match->price;
-            }
-        }
-        $totalPrice = $unitPrice * $validatedData['quantity'];
-
-        $shortfall = null;
-
-        $order = DB::transaction(function () use ($user, $validatedData, $totalPrice, &$shortfall) {
-            $lockedUser = User::where('id', $user->id)->lockForUpdate()->first();
-
-            if ($lockedUser->credits_balance < $totalPrice) {
-                // Captured under the lock so the figures reported to the user are the
-                // ones the decision was actually made on.
-                $shortfall = [
-                    'balance' => round((float) $lockedUser->credits_balance, 2),
-                    'required' => round((float) $totalPrice, 2),
-                    'missing' => round((float) $totalPrice - (float) $lockedUser->credits_balance, 2),
-                ];
-
-                return null;
-            }
-
-            $order = new Order;
-            $order->product_variation_id = $validatedData['product_variation_id'];
-            $order->quantity = $validatedData['quantity'];
-            $order->users_id = $lockedUser->id;
-            $order->total_price = $totalPrice;
-            $order->recipient_user = $validatedData['recipient_user'] ?? null;
-            $order->recipient_phone_number = $validatedData['recipient_phone_number'] ?? null;
-            $order->statuses_id = Order::STATUS_PENDING;
-            // Credits are debited below for exactly this status, so the ledger and
-            // the order agree from the moment it is created.
-            $order->credits_applied_status = Order::STATUS_PENDING;
-            $order->save();
-
-            // Through the ledger rather than `$lockedUser->credits_balance -= …`.
-            // That was float arithmetic on a value that is now DECIMAL, and it left
-            // no record of why a balance changed. The arithmetic now happens in SQL
-            // and produces an auditable row.
-            CreditLedger::record(
-                $lockedUser,
-                -$totalPrice,
-                CreditLedgerEntry::REASON_ORDER_PLACED,
-                $order,
-                ['quantity' => $order->quantity, 'variation_id' => $order->product_variation_id],
-                "order:{$order->id}:place",
-                CreditLedgerEntry::ACTOR_USER,
-                $lockedUser->id
+        // KYC, stock, recipient rules, quantity bounds, tier pricing and the locked
+        // debit all live in OrderPlacement, shared with the reseller API.
+        try {
+            $placed = $placement->place($request->user(), $validatedData);
+        } catch (OrderPlacementException $e) {
+            // Machine-readable `code` plus any figures (e.g. "you need $3.50 more"),
+            // so the storefront can act on it instead of toasting a bare sentence.
+            return response()->json(
+                ['message' => $e->getMessage(), 'code' => $e->errorCode] + $e->extra,
+                $e->status
             );
-
-            DB::table('users')->where('id', $lockedUser->id)->update([
-                'total_purchases' => DB::raw('total_purchases + ' . number_format($totalPrice, 4, '.', '')),
-            ]);
-
-            return $order;
-        });
-
-        if (!$order) {
-            // Machine-readable `code` plus the actual figures, so the storefront can
-            // say "you need $3.50 more" with an Add-credits link instead of toasting
-            // a bare English sentence with no context (and no way to act on it).
-            return response()->json([
-                'message' => __('api.orders.insufficient_credits'),
-                'code' => 'insufficient_credits',
-                'balance' => $shortfall['balance'] ?? null,
-                'required' => $shortfall['required'] ?? null,
-                'missing' => $shortfall['missing'] ?? null,
-            ], 400);
         }
 
-        $admin_email = $this->getAdminEmail();
-
-        //Send email to the admin to approve the order
-        if ($admin_email) {
-            try {
-                Mail::send('emails.order-request', compact('order', 'requestedLocale'), function ($message) use ($admin_email) {
-                    $message->to($admin_email)->subject(__('emails.subjects.new_order'));
-                });
-            } catch (\Throwable $e) {
-                // The order is committed and the user is already debited. An SMTP
-                // failure must not surface as "order failed" — that would push the
-                // user to retry and pay twice. Logged for the admin instead.
-                Log::error('Order notification email failed', [
-                    'order_id' => $order->id,
-                    'exception' => $e,
-                ]);
-            }
-        }
-
-        return response()->json($order, 201);
+        return response()->json($placed->order, 201);
     }
 }

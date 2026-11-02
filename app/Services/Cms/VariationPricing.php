@@ -63,12 +63,16 @@ class VariationPricing
         return (float) (FixedSetting::current()->default_profit_percentage ?? 0);
     }
 
-    /** The recorded unit cost, or null for a hand-priced variation with none. */
+    /**
+     * The recorded cost of what `price` buys — the unit cost × pricingUnit(), so a
+     * per-coin supplier cost is compared against a per-1,000-coins price — or null
+     * for a hand-priced variation with none.
+     */
     public static function costOf(ProductsVariation $variation): ?float
     {
         $cost = $variation->cost_price ?? $variation->external_price;
 
-        return $cost === null ? null : (float) $cost;
+        return $cost === null ? null : (float) $cost * $variation->pricingUnit();
     }
 
     /**
@@ -280,7 +284,7 @@ class VariationPricing
      */
     public function adjustPublic(ProductsVariation $variation, float $percentage)
     {
-        if (filled(optional($variation->product)->external_source)) {
+        if (filled($variation->supplierSource())) {
             return "{$variation->slug}: supplier product — its price follows cost x profit %, so set a profit % instead of adjusting.";
         }
 

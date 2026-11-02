@@ -41,6 +41,10 @@ class Kernel extends ConsoleKernel
         $schedule->command('bycel:check-orders')->everyFiveMinutes()->withoutOverlapping();
         $schedule->command('bycel:reconcile --auto-fail')->everyFifteenMinutes()->withoutOverlapping();
 
+        // Allo Sharejle runs the Yassen platform (AlloSharejleConnector).
+        $schedule->command('allosharejle:sync')->hourly()->withoutOverlapping();
+        $schedule->command('allosharejle:check-orders')->everyFiveMinutes()->withoutOverlapping();
+
         // Storefront login tokens expire after 30 days (config/sanctum.php) but nothing
         // deleted them, so personal_access_tokens only ever grew. Production runs this from
         // CronController::suppliersSync instead, since it uses URL cron, not the scheduler.

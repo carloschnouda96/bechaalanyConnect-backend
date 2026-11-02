@@ -52,6 +52,18 @@ return [
     ],
 
     /*
+    | Allo Sharejle — the same platform as Yassen-Card (AlloSharejleConnector
+    | extends YassenConnector). Token is a secret, .env only. No-op until
+    | ALLOSHAREJLE_SYNC_ENABLED=true with a token set.
+    */
+    'allosharejle' => [
+        'base_url' => env('ALLOSHAREJLE_BASE_URL', 'https://api.allosharejle.com'),
+        'token'    => env('ALLOSHAREJLE_API_TOKEN'),
+        'enabled'  => env('ALLOSHAREJLE_SYNC_ENABLED', false),
+        'qty_multiplier' => env('ALLOSHAREJLE_QTY_MULTIPLIER', 1),
+    ],
+
+    /*
     | SwiftServices supplier integration (Perfect Panel v2). Auth is the `key`
     | query parameter — a secret that must only live in .env (never committed).
     | `enabled` is a master switch so the sync commands and order
@@ -75,6 +87,12 @@ return [
         'base_url' => env('ONEXPANEL_BASE_URL', 'https://1xpanel.com'),
         'key'      => env('ONEXPANEL_API_KEY'),
         'enabled'  => env('ONEXPANEL_SYNC_ENABLED', false),
+        // Read Quality/Speed/Refill/Link/Start time + Average time from the
+        // panel's public /services page (the API has none of them). Cached 6 h.
+        'scrape_details' => env('ONEXPANEL_SCRAPE_DETAILS', true),
+        // New 1xpanel categories import as ONE product whose services are the
+        // dropdown entries, like 1xpanel's own Category → Service order form.
+        'group_categories_by_default' => true,
     ],
 
     /*
@@ -82,8 +100,9 @@ return [
     | an `Authorization: Bearer <token>` header — a secret that must only live in
     | .env (never committed). Two independent product families sit behind one
     | account, each with its own switch so one can roll out without the other:
-    |   quota  GET /api/quota/admin/stock  →  POST /api/quota/admin/allocate
-    |   gift   GET /api/alfa-gifts         →  POST /api/alfa-gifts/purchase
+    |   quota  GET /api/quota/admin/stock  →  POST /api/v2/quota/admin/allocate (async, 202 + jobId)
+    |                                         GET  /api/v2/quota/admin/status/{jobId} (polled)
+    |   gift   GET /api/alfa-gifts         →  POST /api/alfa-gifts/purchase (synchronous)
     */
     'usharez' => [
         'base_url' => env('USHAREZ_BASE_URL', 'https://bechaalanyconnect.usharez.com'),
@@ -98,6 +117,10 @@ return [
         'lbp_per_usd' => env('USHAREZ_LBP_PER_USD', 89500),
 
         'quota_enabled' => env('USHAREZ_QUOTA_ENABLED', true),
+        // v2 async allocate (202 + jobId, polled by usharez:check-orders). Set
+        // false to fall back to the v1 synchronous POST /api/quota/admin/allocate
+        // without a deploy — v1 could time out while Alfa was slow.
+        'quota_async' => env('USHAREZ_QUOTA_ASYNC', true),
         // The live token currently gets HTTP 403 on /api/alfa-gifts. The sync
         // tolerates that (logs a warning, keeps quota intact), so this stays on:
         // gifts start importing the moment usharez grants the permission.

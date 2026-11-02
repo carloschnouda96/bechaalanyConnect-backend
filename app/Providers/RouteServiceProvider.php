@@ -50,7 +50,24 @@ class RouteServiceProvider extends ServiceProvider
         // endpoints below get their own explicit, correctly-keyed limiters instead of
         // relying on this one.
         RateLimiter::for('api', function (Request $request) {
+            // The reseller API has its own per-key limiters below. Several of a
+            // reseller's customers share one server IP, so the IP bucket would
+            // throttle an integration long before its key limit.
+            if ($request->is('api/v1/*')) {
+                return Limit::none();
+            }
+
             return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+        });
+
+        // Reseller API, keyed by the API key itself (hashed — never the raw key)
+        // so the limit does not depend on middleware order resolving the user.
+        RateLimiter::for('reseller', function (Request $request) {
+            return Limit::perMinute(120)->by('reseller:' . hash('sha256', (string) $request->bearerToken()));
+        });
+
+        RateLimiter::for('reseller-write', function (Request $request) {
+            return Limit::perMinute(30)->by('reseller-write:' . hash('sha256', (string) $request->bearerToken()));
         });
 
         // Credential and account-recovery endpoints. Keyed by IP *and* by the

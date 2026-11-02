@@ -45,3 +45,6 @@ Route::prefix(config('hellotree.cms_route_prefix'))
 Route::get('/', function () {
     return view('welcome');
 });
+
+// Reseller API documentation (public/openapi/reseller-v1.yaml, rendered by Redoc).
+Route::view('/api-docs', 'api-docs');

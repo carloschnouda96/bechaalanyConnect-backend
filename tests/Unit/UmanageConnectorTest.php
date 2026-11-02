@@ -12,6 +12,7 @@ use App\Services\Umanage\UmanageBusinessException;
 use App\Services\Umanage\UmanageClient;
 use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Http;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -519,8 +520,8 @@ class UmanageConnectorTest extends TestCase
     /**
      * checkOrder gets only the Order, so the family must be recovered from the
      * external_order_id prefix to pick the right status endpoint.
-     * @dataProvider pollProvider
      */
+    #[DataProvider('pollProvider')]
     public function test_check_order_routes_to_the_right_endpoint(string $externalOrderId, string $expectedPath): void
     {
         Http::fake(['*' => Http::response(['success' => true, 'order' => ['status' => 'completed']], 200)]);

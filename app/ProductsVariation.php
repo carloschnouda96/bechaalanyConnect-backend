@@ -57,6 +57,7 @@ class ProductsVariation extends Model  implements TranslatableContract
      */
     protected $extraHidden = [
         'external_id',
+        'external_source',
         'external_price',
         'external_type',
         'cost_price',
@@ -70,7 +71,12 @@ class ProductsVariation extends Model  implements TranslatableContract
     // together with the frontend number normaliser.
     protected $casts = [
         'unit_amount' => 'integer',
+        'min_quantity' => 'integer',
+        'max_quantity' => 'integer',
         'external_qty_values' => 'array',
+        // Sync-owned customer-facing service details (1xpanel), shipped to the
+        // storefront as-is — no cost data in it, unlike its external_* siblings.
+        'external_details' => 'array',
         'manual_price' => 'boolean',
         'profit_percentage' => 'decimal:2',
     ];
@@ -133,6 +139,19 @@ class ProductsVariation extends Model  implements TranslatableContract
     }
 
     /**
+     * The supplier that fulfils this variation, or null for a hand-made one.
+     *
+     * The variation's own column wins: a supplier category mapped to an admin-made
+     * product (supplier_categories.product_id) puts supplier variations under a
+     * product with no `external_source`. The parent is the fallback for rows the
+     * 2026_10_09_000002 backfill did not reach.
+     */
+    public function supplierSource(): ?string
+    {
+        return $this->external_source ?: optional($this->product)->external_source;
+    }
+
+    /**
      * The markup % to apply to this variation's cost, falling back to the global
      * default in Fixed Settings when no per-variation value is set.
      */
@@ -149,6 +168,11 @@ class ProductsVariation extends Model  implements TranslatableContract
      * The selling price this variation's cost and effective profit % produce, or
      * null when no cost is recorded (a hand-priced variation) — there is then
      * nothing to derive a price from, and the caller must leave `price` alone.
+     *
+     * `price` is the price of pricingUnit() units, so the per-unit cost is scaled
+     * by it first. That is what lets a per-coin supplier cost ($0.000105 per
+     * Jawaker coin) survive `price` being decimal(12,2): priced per 1,000 coins it
+     * is $0.13, not $0.00.
      */
     public function priceFromCost(): ?float
     {
@@ -156,10 +180,134 @@ class ProductsVariation extends Model  implements TranslatableContract
         if ($cost === null) {
             return null;
         }
-        return self::computeSellingPrice((float) $cost, $this->effectiveProfitPercentage());
+        return self::computeSellingPrice((float) $cost * $this->pricingUnit(), $this->effectiveProfitPercentage());
     }
 
-    public $appends = ['full_path'];
+    /**
+     * How many units `price` buys: `unit_amount` (coins per price, e.g. 1,000)
+     * or 1. Shared by every cost→price formula and by the coin order total.
+     */
+    public function pricingUnit(): int
+    {
+        return max(1, (int) ($this->unit_amount ?? 0));
+    }
+
+    /**
+     * A Coin Recharge variation: `orders.quantity` is the real number of coins
+     * the customer typed, charged at `price` per pricingUnit() coins.
+     */
+    public function isCoin(): bool
+    {
+        return (int) optional($this->product)->product_type_id === Product::TYPE_COIN;
+    }
+
+    /**
+     * Whether `price` is the price of pricingUnit() units and the customer types
+     * the real quantity, so the order total is prorated (coinTotal()): Coin
+     * Recharge (per 1,000 coins) and Social Media Services (per 1,000 followers,
+     * views, …). Everything else is `price × quantity`.
+     */
+    public function isProrated(): bool
+    {
+        return in_array(
+            (int) optional($this->product)->product_type_id,
+            [Product::TYPE_COIN, Product::TYPE_SOCIAL],
+            true
+        );
+    }
+
+    /**
+     * Order total for `$coins` coins at `$price` per `$unit` coins, rounded UP to
+     * the cent so no amount, however small, is ever charged $0.00. The storefront
+     * mirrors this exact formula to display the total.
+     */
+    public static function coinTotal(float $price, int $coins, int $unit): float
+    {
+        return ceil(round($price * $coins / max(1, $unit) * 100, 6)) / 100;
+    }
+
+    /**
+     * Smallest `orders.quantity` this variation may be ordered in, never below 1
+     * (coins for a coin variation, units otherwise).
+     *
+     * The larger of the admin's `min_quantity` (in the same unit) and the
+     * supplier's own floor, `external_qty_values.min`.
+     *
+     * Enforced by OrderController::saveOrder and shipped to the storefront as
+     * `min_order_quantity`.
+     */
+    public function minOrderQuantity(): int
+    {
+        $min = max(1, (int) ($this->min_quantity ?? 0));
+
+        $supplierMin = $this->supplierQtyBound('min');
+        if ($supplierMin !== null) {
+            $min = max($min, (int) ceil($supplierMin));
+        }
+
+        return $min;
+    }
+
+    /**
+     * Largest `orders.quantity` one order may hold: the smallest of the admin's
+     * `max_quantity`, the supplier's `external_qty_values.max` when it reports
+     * one, and our own safety limit (OrderController::MAX_COINS for prorated
+     * coin / social-media quantities, MAX_QUANTITY otherwise).
+     */
+    public function maxOrderQuantity(): int
+    {
+        $cap = $this->isProrated()
+            ? \App\Http\Controllers\OrderController::MAX_COINS
+            : \App\Http\Controllers\OrderController::MAX_QUANTITY;
+
+        if ((int) ($this->max_quantity ?? 0) > 0) {
+            $cap = min($cap, (int) $this->max_quantity);
+        }
+
+        $supplierMax = $this->supplierQtyBound('max');
+        if ($supplierMax !== null) {
+            $cap = min($cap, max(1, (int) floor($supplierMax)));
+        }
+
+        return $cap;
+    }
+
+    /**
+     * external_qty_values.{min|max} converted to our order units. The supplier
+     * counts in its own qty; only the Yassen-platform connectors (Yassen, Allo
+     * Sharejle) scale ours (they are sent `quantity × {KEY}_QTY_MULTIPLIER`),
+     * every other connector sends 1:1.
+     */
+    private function supplierQtyBound(string $key): ?float
+    {
+        $qty = $this->external_qty_values;
+        if (!is_array($qty) || !isset($qty[$key]) || !is_numeric($qty[$key]) || $qty[$key] <= 0) {
+            return null;
+        }
+
+        $value = (float) $qty[$key];
+        foreach (['yassen', 'allosharejle'] as $source) {
+            $multiplier = (float) config("services.{$source}.qty_multiplier", 1);
+            // Only touch the parent product when the multiplier can change the answer.
+            if ($multiplier > 0 && $multiplier != 1 && $this->supplierSource() === $source) {
+                $value /= $multiplier;
+            }
+        }
+
+        return $value;
+    }
+
+    public function getMinOrderQuantityAttribute(): int
+    {
+        return $this->minOrderQuantity();
+    }
+
+    public function getMaxOrderQuantityAttribute(): int
+    {
+        return $this->maxOrderQuantity();
+    }
+
+    public $appends = ['full_path', 'min_order_quantity', 'max_order_quantity'];
 
     /**
      * Kept: the storefront reads the serialised `price_variations` key to render

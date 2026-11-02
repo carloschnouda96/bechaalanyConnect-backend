@@ -48,11 +48,12 @@ class OneXPanelConnectorTest extends TestCase
         $this->assertSame(0.90 / 1000, $followers->unitCost);          // Default → rate / 1000
         $this->assertSame('First Category', $followers->categoryName);
         $this->assertSame('first-category', $followers->categoryExternalId);
-        $this->assertSame(1, $followers->productTypeId);               // recipient/link field
+        $this->assertSame(5, $followers->productTypeId);               // Default → Social Media Service (link + qty)
         $this->assertTrue($followers->available);                      // presence implies available
         $this->assertSame(['min' => 50, 'max' => 10000], $followers->qtyValues);
 
         $this->assertSame(8.0, $catalog[1]->unitCost);                 // Package → flat rate
+        $this->assertSame(1, $catalog[1]->productTypeId);              // Package → Direct Recharge
         $this->assertSame('streaming', $catalog[1]->categoryExternalId);
     }
 

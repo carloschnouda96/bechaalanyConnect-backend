@@ -5,6 +5,7 @@ namespace Tests\Feature\Cms;
 use App\Services\Cms\SchemaGuard;
 use App\Services\Cms\SchemaManifest;
 use Illuminate\Support\Facades\DB;
+use PHPUnit\Framework\Attributes\DataProvider;
 use Tests\TestCase;
 
 /**
@@ -56,12 +57,18 @@ class SchemaGuardTest extends TestCase
             // one product per supplier row, scattering a single product's amount
             // dropdown across the storefront as separate products again.
             'supplier_categories.group_as_single_product' => ['supplier_categories', 'group_as_single_product'],
+            // Admin-set order bounds; losing max_quantity silently lifts the cap.
+            'products_variations.min_quantity' => ['products_variations', 'min_quantity'],
+            'products_variations.max_quantity' => ['products_variations', 'max_quantity'],
+            // Reseller API: losing client_order_id removes the retry guard (and its
+            // unique index), losing api_enabled disables every reseller key.
+            'orders.client_order_id' => ['orders', 'client_order_id'],
+            'orders.source' => ['orders', 'source'],
+            'users.api_enabled' => ['users', 'api_enabled'],
         ];
     }
 
-    /**
-     * @dataProvider protectedColumnProvider
-     */
+    #[DataProvider('protectedColumnProvider')]
     public function test_supplier_column_is_registered_as_a_cms_field(string $table, string $column): void
     {
         $route = $this->routeForTable($table);

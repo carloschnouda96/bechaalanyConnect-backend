@@ -90,7 +90,45 @@ CREATE TABLE `admins` (
   UNIQUE KEY `admins_email_unique` (`email`),
   KEY `admins_admin_role_id_foreign` (`admin_role_id`),
   CONSTRAINT `admins_admin_role_id_foreign` FOREIGN KEY (`admin_role_id`) REFERENCES `admin_roles` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=2 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `api_keys`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `api_keys` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int(10) unsigned NOT NULL,
+  `name` varchar(100) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `prefix` varchar(16) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `key_hash` char(64) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `allowed_ips` json DEFAULT NULL,
+  `last_used_at` timestamp NULL DEFAULT NULL,
+  `revoked_at` timestamp NULL DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `api_keys_key_hash_unique` (`key_hash`),
+  KEY `api_keys_user_id_revoked_at_index` (`user_id`,`revoked_at`),
+  CONSTRAINT `api_keys_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `api_webhooks`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `api_webhooks` (
+  `id` bigint(20) unsigned NOT NULL AUTO_INCREMENT,
+  `user_id` int(10) unsigned NOT NULL,
+  `url` varchar(2048) COLLATE utf8mb4_unicode_ci NOT NULL,
+  `secret` text COLLATE utf8mb4_unicode_ci NOT NULL,
+  `last_delivery_at` timestamp NULL DEFAULT NULL,
+  `last_delivery_status` smallint(5) unsigned DEFAULT NULL,
+  `last_delivery_error` varchar(500) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  UNIQUE KEY `api_webhooks_user_id_unique` (`user_id`),
+  CONSTRAINT `api_webhooks_user_id_foreign` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `banner_swiper`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -174,7 +212,7 @@ CREATE TABLE `categories` (
   PRIMARY KEY (`id`),
   UNIQUE KEY `categories_slug_unique` (`slug`),
   KEY `categories_active_pos_index` (`is_active`,`ht_pos`)
-) ENGINE=InnoDB AUTO_INCREMENT=26 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=28 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `categories_translations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -190,7 +228,7 @@ CREATE TABLE `categories_translations` (
   PRIMARY KEY (`id`),
   KEY `translatable_id_1751382016` (`category_id`),
   CONSTRAINT `translatable_id_1751382016` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=51 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=55 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `cms_logs`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -792,7 +830,7 @@ CREATE TABLE `migrations` (
   `migration` varchar(191) COLLATE utf8mb4_unicode_ci NOT NULL,
   `batch` int(11) NOT NULL,
   PRIMARY KEY (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=58 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=67 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `orders`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -817,8 +855,11 @@ CREATE TABLE `orders` (
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `client_order_id` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `source` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT 'storefront',
   PRIMARY KEY (`id`),
   UNIQUE KEY `orders_external_order_uuid_unique` (`external_order_uuid`),
+  UNIQUE KEY `orders_user_client_order_unique` (`users_id`,`client_order_id`),
   KEY `orders_user_created_index` (`users_id`,`created_at`),
   KEY `orders_statuses_id_index` (`statuses_id`),
   KEY `orders_product_variation_id_index` (`product_variation_id`),
@@ -863,7 +904,7 @@ CREATE TABLE `product_price_variations` (
   KEY `product_price_variations_user_types_id_foreign` (`user_types_id`),
   CONSTRAINT `product_price_variations_products_variations_id_foreign` FOREIGN KEY (`products_variations_id`) REFERENCES `products_variations` (`id`) ON DELETE CASCADE,
   CONSTRAINT `product_price_variations_user_types_id_foreign` FOREIGN KEY (`user_types_id`) REFERENCES `user_types` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `product_type`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -878,7 +919,7 @@ CREATE TABLE `product_type` (
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   UNIQUE KEY `product_type_slug_unique` (`slug`)
-) ENGINE=InnoDB AUTO_INCREMENT=5 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=6 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `products`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -905,7 +946,7 @@ CREATE TABLE `products` (
   KEY `products_product_type_id_foreign` (`product_type_id`),
   CONSTRAINT `products_product_type_id_foreign` FOREIGN KEY (`product_type_id`) REFERENCES `product_type` (`id`),
   CONSTRAINT `products_subcategory_id_foreign` FOREIGN KEY (`subcategory_id`) REFERENCES `subcategories` (`id`)
-) ENGINE=InnoDB AUTO_INCREMENT=352 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=359 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `products_translations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -921,7 +962,7 @@ CREATE TABLE `products_translations` (
   PRIMARY KEY (`id`),
   KEY `translatable_id_1751382638` (`product_id`),
   CONSTRAINT `translatable_id_1751382638` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=703 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=717 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `products_variations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -938,19 +979,24 @@ CREATE TABLE `products_variations` (
   `cost_price` double DEFAULT NULL,
   `profit_percentage` decimal(8,2) DEFAULT NULL,
   `external_id` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `external_source` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `external_price` decimal(20,8) DEFAULT NULL,
   `external_type` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `external_qty_values` json DEFAULT NULL,
+  `external_details` json DEFAULT NULL,
   `supplier_status` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `unit_amount` int(10) unsigned DEFAULT NULL,
+  `min_quantity` int(11) DEFAULT NULL,
+  `max_quantity` int(11) DEFAULT NULL,
   `ht_pos` int(11) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
   PRIMARY KEY (`id`),
   KEY `products_variations_external_id_index` (`external_id`),
   KEY `products_variations_product_active_index` (`product_id`,`is_active`),
+  KEY `products_variations_external_source_id_index` (`external_source`,`external_id`),
   CONSTRAINT `products_variations_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=369 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=404 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `products_variations_translations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -967,7 +1013,7 @@ CREATE TABLE `products_variations_translations` (
   PRIMARY KEY (`id`),
   KEY `translatable_id_1751389128` (`products_variation_id`),
   CONSTRAINT `translatable_id_1751389128` FOREIGN KEY (`products_variation_id`) REFERENCES `products_variations` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=737 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=807 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `related_product_product`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -1091,7 +1137,7 @@ CREATE TABLE `subcategories` (
   KEY `subcategories_category_id_foreign` (`category_id`),
   KEY `subcategories_active_category_pos_index` (`is_active`,`category_id`,`ht_pos`),
   CONSTRAINT `subcategories_category_id_foreign` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=27 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=29 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `subcategories_translations`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -1107,7 +1153,7 @@ CREATE TABLE `subcategories_translations` (
   PRIMARY KEY (`id`),
   KEY `translatable_id_1751619335` (`subcategory_id`),
   CONSTRAINT `translatable_id_1751619335` FOREIGN KEY (`subcategory_id`) REFERENCES `subcategories` (`id`) ON DELETE CASCADE
-) ENGINE=InnoDB AUTO_INCREMENT=53 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=57 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `supplier_categories`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -1124,6 +1170,7 @@ CREATE TABLE `supplier_categories` (
   `group_as_single_product` tinyint(1) DEFAULT '0',
   `category_id` int(10) unsigned DEFAULT NULL,
   `subcategory_id` int(10) unsigned DEFAULT NULL,
+  `product_id` int(10) unsigned DEFAULT NULL,
   `ht_pos` int(11) DEFAULT NULL,
   `created_at` timestamp NULL DEFAULT NULL,
   `updated_at` timestamp NULL DEFAULT NULL,
@@ -1132,9 +1179,11 @@ CREATE TABLE `supplier_categories` (
   KEY `supplier_categories_source_enabled_index` (`source`,`import_enabled`),
   KEY `supplier_categories_category_id_foreign` (`category_id`),
   KEY `supplier_categories_subcategory_id_foreign` (`subcategory_id`),
+  KEY `supplier_categories_product_id_foreign` (`product_id`),
   CONSTRAINT `supplier_categories_category_id_foreign` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`) ON DELETE SET NULL,
+  CONSTRAINT `supplier_categories_product_id_foreign` FOREIGN KEY (`product_id`) REFERENCES `products` (`id`) ON DELETE SET NULL,
   CONSTRAINT `supplier_categories_subcategory_id_foreign` FOREIGN KEY (`subcategory_id`) REFERENCES `subcategories` (`id`) ON DELETE SET NULL
-) ENGINE=InnoDB AUTO_INCREMENT=800 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB AUTO_INCREMENT=911 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `user_notifications`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
@@ -1215,6 +1264,7 @@ CREATE TABLE `users` (
   `verification_statuses_id` int(10) unsigned DEFAULT NULL,
   `rejection_reason` text COLLATE utf8mb4_unicode_ci,
   `deleted_at` timestamp NULL DEFAULT NULL,
+  `api_enabled` tinyint(1) NOT NULL DEFAULT '0',
   PRIMARY KEY (`id`),
   UNIQUE KEY `users_email_unique` (`email`),
   UNIQUE KEY `users_username_unique` (`username`),

@@ -54,6 +54,11 @@ class ProductEditorController extends Controller
             'is_active' => (bool) $variation->is_active,
             'draft' => (int) $variation->cms_draft_flag === 1,
             'supplier_status' => $variation->supplier_status,
+            // Only worth a badge on an admin product a supplier category is mapped
+            // into; on an imported product every row is the supplier's anyway.
+            'source' => filled($product->external_source) || !$variation->external_id
+                ? null
+                : $variation->external_source,
             'cost' => VariationPricing::costOf($variation),
             'cells' => $this->pricing->cells($variation),
         ]);

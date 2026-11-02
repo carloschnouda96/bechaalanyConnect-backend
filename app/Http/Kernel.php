@@ -72,6 +72,8 @@ class Kernel extends HttpKernel
         'locale' => \App\Http\Middleware\LocaleMiddleware::class,
         // Lenient: for routes with no {locale} segment — reads ?lang / Accept-Language.
         'locale.header' => \App\Http\Middleware\ResolveRequestLocale::class,
+        // Reseller API key (/api/v1/*) — see AuthenticateApiKey.
+        'api.key' => \App\Http\Middleware\AuthenticateApiKey::class,
 
 
     ];

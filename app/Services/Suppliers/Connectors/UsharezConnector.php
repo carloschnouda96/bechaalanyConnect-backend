@@ -4,6 +4,7 @@ namespace App\Services\Suppliers\Connectors;
 
 use App\Order;
 use App\ProductsVariation;
+use App\Services\Suppliers\Contracts\HasCreditLine;
 use App\Services\Suppliers\Contracts\PartialCatalogAware;
 use App\Services\Suppliers\Contracts\SupplierConnector;
 use App\Services\Suppliers\ExchangeRate;
@@ -22,8 +23,8 @@ use Illuminate\Support\Facades\Log;
  * Unlike the other three suppliers, usharez exposes TWO unrelated product
  * families behind one account, each with its own catalog + purchase endpoint:
  *
- *   quota  GET /api/quota/admin/stock  →  POST /api/quota/admin/allocate
- *   gift   GET /api/alfa-gifts         →  POST /api/alfa-gifts/purchase
+ *   quota  GET /api/quota/admin/stock  →  POST /api/v2/quota/admin/allocate (async)
+ *   gift   GET /api/alfa-gifts         →  POST /api/alfa-gifts/purchase   (sync)
  *
  * The family is encoded into external_id as "{family}:{ref}" ("quota:16.5",
  * "gift:Alfa $0.5") and surfaces as two supplier categories, so an admin can
@@ -34,10 +35,13 @@ use Illuminate\Support\Facades\Log;
  * Quota prices arrive in LBP; the storefront is USD-only, so unitCost is divided
  * by the LBP→USD rate (Fixed Settings, falling back to config/env).
  *
- * There is NO order-status endpoint — both POSTs are synchronous — so placeOrder
- * returns a terminal COMPLETED/FAILED and checkOrder is a no-op echo.
+ * Quota allocation is async (API v2): the POST answers 202 with a jobId, which is
+ * stored as external_order_id "quota:{jobId}" and polled by checkOrder until the
+ * job is terminal. On success the job reports the admin line the customer must
+ * text to 1323, written to orders.code. Gift purchases are still synchronous, so
+ * placeOrder returns them terminal and checkOrder echoes their stored status.
  */
-class UsharezConnector implements SupplierConnector, PartialCatalogAware
+class UsharezConnector implements SupplierConnector, PartialCatalogAware, HasCreditLine
 {
     public const KEY = 'usharez';
 
@@ -46,6 +50,16 @@ class UsharezConnector implements SupplierConnector, PartialCatalogAware
 
     public const CATEGORY_QUOTA = 'usharez-quota';
     public const CATEGORY_GIFT = 'usharez-alfa-gifts';
+
+    /**
+     * Marker on the <p> written after the admin number in orders.code. The
+     * storefront (order-codes.tsx) swaps it for a localized "text this number to
+     * 1323" instruction — the backend does not know the customer's language.
+     */
+    public const NOTE_TEXT_1323 = 'usharez-text-1323';
+
+    /** A v2 jobId is opaque; anything outside this is never put in a URL. */
+    private const JOB_ID_PATTERN = '/^[A-Za-z0-9_-]{1,128}$/';
 
     /** Both families collect a phone number → product_type 3 (Telecommunication Charge). */
     private const PRODUCT_TYPE_TELECOM = 3;
@@ -305,15 +319,43 @@ class UsharezConnector implements SupplierConnector, PartialCatalogAware
             throw new UsharezBusinessException("Order #{$order->id} has an invalid quota size: {$ref}");
         }
 
-        $response = $this->client->allocateQuota(
-            $phone,
-            // 11.0 → 11 (int, as the docs show); 16.5 stays a float.
-            $size == (int) $size ? (int) $size : $size,
-        );
+        // 11.0 → 11 (int, as the docs show); 16.5 stays a float.
+        $quotaSize = $size == (int) $size ? (int) $size : $size;
 
+        if (!(bool) config('services.usharez.quota_async', true)) {
+            // v1 rollback path — synchronous, so the answer is already terminal.
+            $response = $this->client->allocateQuota($phone, $quotaSize);
+
+            return new SupplierOrderResult(
+                externalOrderId: $this->syntheticOrderId($order, $response),
+                status: SupplierOrderResult::COMPLETED,
+                raw: $response,
+            );
+        }
+
+        $response = $this->client->allocateQuotaAsync($phone, $quotaSize);
+        $jobId = $response['jobId'] ?? $response['job_id'] ?? null;
+
+        if (!is_scalar($jobId) || !preg_match(self::JOB_ID_PATTERN, (string) $jobId)) {
+            // Accepted but untrackable: a job may exist, so it must be neither
+            // refunded nor re-sent — the indeterminate path parks it for a human.
+            throw new UsharezIndeterminateException(
+                "Usharez accepted allocate for order #{$order->id} but returned no usable jobId."
+            );
+        }
+
+        // Normally "queued"; a job that already finished is honoured as such.
+        $status = $this->mapJobStatus($response['status'] ?? null, null, SupplierOrderResult::PENDING);
+        if ($status === SupplierOrderResult::COMPLETED) {
+            $this->applyAdminNumber($order, is_array($response['data'] ?? null) ? $response['data'] : []);
+        }
+
+        // The family prefix is what tells checkOrder this id is pollable.
+        // external_order_id is the only durable carrier: refreshStatus() overwrites
+        // external_response wholesale on every poll.
         return new SupplierOrderResult(
-            externalOrderId: $this->syntheticOrderId($order, $response),
-            status: SupplierOrderResult::COMPLETED, // synchronous — nothing to poll
+            externalOrderId: self::FAMILY_QUOTA . ':' . $jobId,
+            status: $status,
             raw: $response,
         );
     }
@@ -335,21 +377,114 @@ class UsharezConnector implements SupplierConnector, PartialCatalogAware
     }
 
     /**
-     * usharez has no order-status endpoint and both POSTs are synchronous, so
-     * placeOrder already produced the terminal status. This is a pure echo: it
-     * makes NO HTTP call and never changes the stored status, so orders parked
-     * PENDING by an indeterminate POST stay visible until an admin resolves them.
-     *
-     * The `usharez:check-orders` command still exists because CronController
-     * composes "{key}:check-orders" for every enabled supplier.
+     * Only a v2 quota job ("quota:{jobId}") is pollable. Everything else — gift
+     * orders, v1-era quota orders, and synthetic "usharez-{uuid}" ids parked
+     * PENDING by an indeterminate POST — is echoed with NO HTTP call and no status
+     * change, so a parked order stays visible until an admin resolves it.
      */
     public function checkOrder(Order $order): SupplierOrderResult
     {
+        $stored = $order->external_status ?: SupplierOrderResult::COMPLETED;
+        $rawStored = is_array($order->external_response) ? $order->external_response : [];
+        [$family, $jobId] = $this->parseExternalId((string) $order->external_order_id);
+
+        if ($family !== self::FAMILY_QUOTA || !preg_match(self::JOB_ID_PATTERN, $jobId)) {
+            return new SupplierOrderResult($order->external_order_id, $stored, $rawStored);
+        }
+
+        try {
+            $response = $this->client->quotaJobStatus($jobId);
+        } catch (UsharezBusinessException $e) {
+            // A 404/403 on a lookup is not "the recharge failed" — refunding on it
+            // would hand back money for a quota that may well have been delivered.
+            Log::warning('Usharez job lookup rejected — keeping stored status', [
+                'order_id' => $order->id,
+                'external_order_id' => $order->external_order_id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return new SupplierOrderResult($order->external_order_id, $stored, $rawStored);
+        }
+        // SupplierApiException (5xx/401/429) propagates; the check command logs it
+        // per order and the next run polls again.
+
+        $data = is_array($response['data'] ?? null) ? $response['data'] : [];
+        $refunded = array_key_exists('refunded', $data)
+            ? filter_var($data['refunded'], FILTER_VALIDATE_BOOLEAN, FILTER_NULL_ON_FAILURE)
+            : null;
+        $jobStatus = strtolower(trim((string) ($response['status'] ?? '')));
+        $status = $this->mapJobStatus($jobStatus, $refunded, $stored);
+
+        if ($status === SupplierOrderResult::COMPLETED) {
+            $this->applyAdminNumber($order, $data);
+        }
+
+        if ($status === SupplierOrderResult::FAILED && $refunded !== true) {
+            // The customer is refunded either way (nothing was delivered); this is
+            // our money held at usharez, to settle with them.
+            Log::warning('Usharez job failed without a usharez refund — reconcile funds with usharez', [
+                'order_id' => $order->id,
+                'external_order_id' => $order->external_order_id,
+                'job_status' => $jobStatus,
+                'error' => $data['error'] ?? null,
+            ]);
+        }
+
+        if ($jobStatus === 'stopped' && $status === SupplierOrderResult::PENDING) {
+            if (empty($rawStored['usharez_needs_review'])) {
+                // Logged once, on the transition — the order is re-polled every 5 min.
+                Log::critical('Usharez job stopped without a refund — resolve manually (reject in the CMS to refund)', [
+                    'order_id' => $order->id,
+                    'external_order_id' => $order->external_order_id,
+                    'error' => $data['error'] ?? null,
+                ]);
+            }
+            $response['usharez_needs_review'] = true;
+        }
+
         return new SupplierOrderResult(
             externalOrderId: $order->external_order_id,
-            status: $order->external_status ?: SupplierOrderResult::COMPLETED,
-            raw: is_array($order->external_response) ? $order->external_response : [],
+            status: $status,
+            raw: $response,
         );
+    }
+
+    /**
+     * queued/processing/retrying → pending; succeeded → completed;
+     * rejected/failed → failed. `stopped` is undocumented: it refunds the customer
+     * only when usharez says it refunded us, otherwise it stays pending for a
+     * human. Anything unrecognised keeps $fallback rather than guessing.
+     */
+    private function mapJobStatus(?string $status, ?bool $refunded, string $fallback): string
+    {
+        return match (strtolower(trim((string) $status))) {
+            'queued', 'processing', 'retrying' => SupplierOrderResult::PENDING,
+            'succeeded' => SupplierOrderResult::COMPLETED,
+            'rejected', 'failed' => SupplierOrderResult::FAILED,
+            'stopped' => $refunded === true ? SupplierOrderResult::FAILED : SupplierOrderResult::PENDING,
+            default => $fallback,
+        };
+    }
+
+    /**
+     * The admin line the customer texts to 1323 to receive the quota.
+     *
+     * orders.code MUST be HTML containing <li> elements: the storefront parses it
+     * with DOMParser + querySelectorAll('li') and renders NOTHING when there are
+     * none (see order-codes.tsx). SupplierOrderFulfillment saves the order after
+     * checkOrder() returns, so setting it here is enough.
+     */
+    private function applyAdminNumber(Order $order, array $data): void
+    {
+        $admin = is_array($data['allocated_admin'] ?? null) ? $data['allocated_admin'] : [];
+        $number = $admin['phone_number'] ?? null;
+
+        if (!is_scalar($number) || trim((string) $number) === '') {
+            return;
+        }
+
+        $order->code = '<ul><li>' . e(trim((string) $number)) . '</li></ul>'
+            . '<p data-note="' . self::NOTE_TEXT_1323 . '"></p>';
     }
 
     /** The balance endpoint reports LBP; normalised to USD for comparability. */
@@ -362,6 +497,22 @@ class UsharezConnector implements SupplierConnector, PartialCatalogAware
         }
 
         $value = $response['balance'] ?? $response['data']['balance'] ?? null;
+
+        return is_numeric($value) && $this->lbpPerUsd() > 0
+            ? $this->toUsd((float) $value, 'lbp')
+            : null;
+    }
+
+    /** usharez may let the account run negative up to `debt_allowance` (LBP). */
+    public function creditLine(): ?float
+    {
+        try {
+            $response = $this->client->balance();
+        } catch (\Throwable $e) {
+            return null;
+        }
+
+        $value = $response['debt_allowance'] ?? $response['data']['debt_allowance'] ?? null;
 
         return is_numeric($value) && $this->lbpPerUsd() > 0
             ? $this->toUsd((float) $value, 'lbp')
