@@ -41,6 +41,9 @@ class Kernel extends HttpKernel
             // a backstop against saturating PHP-FPM workers, not the login limiter
             // (see throttle:cms-login in routes/web.php).
             \Illuminate\Routing\Middleware\ThrottleRequests::class . ':web',
+            // Before routing reaches the vendor CMS list action, which would otherwise
+            // execute any query-builder method named in ?custom_validation.
+            \App\Http\Middleware\SanitizeCmsListFilters::class,
         ],
 
         'api' => [
