@@ -270,7 +270,11 @@ class RegisteredUserController extends Controller
         // worked. Recorded here and enforced in resetPasswordSendEmail().
         Cache::put(self::resetIssuedAtKey($email), now(), now()->addMinutes(self::RESET_TTL_MINUTES));
 
-        $reset_password_url = config('app.front_url') . '/' . $requestedLocale . '/reset-password/' . $email . '/' . $password_reset_token;
+        // LocaleMiddleware has already set the locale from the {locale} segment.
+        // This used an undefined $requestedLocale, which threw before Mail::send for
+        // every registered address: no reset mail ever went out, and the 500 (vs the
+        // generic 200 for unknown addresses) re-opened the membership oracle above.
+        $reset_password_url = config('app.front_url') . '/' . app()->getLocale() . '/reset-password/' . $email . '/' . $password_reset_token;
 
         try {
             Mail::send('emails.forgot-password', compact('reset_password_url', 'attributes'), function ($message) use ($email) {

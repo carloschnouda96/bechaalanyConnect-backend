@@ -91,6 +91,20 @@ class SocialiteController extends Controller
                 'email_verified' => 1,
             ];
 
+            // An unverified row was created by whoever called /register with this
+            // address, which proves nothing about owning it. Keeping its password
+            // let that person pre-register a victim's email, wait for the victim's
+            // first Google sign-in to flip email_verified, then log in with their own
+            // password. The Google token is the first proof of ownership, so every
+            // credential set before it is discarded.
+            if (!$user->email_verified) {
+                $attributes['password'] = bcrypt(str()->random(40));
+                $attributes['verification_token'] = null;
+                $attributes['account_verification_code'] = null;
+                $attributes['password_reset_token'] = null;
+                $user->tokens()->delete();
+            }
+
             // Don't clobber a username the user chose themselves with their Google
             // display name; only fill it if we have nothing.
             if (blank($user->username) && filled($claims['name'])) {

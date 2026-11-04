@@ -133,10 +133,10 @@
                                     $appends_to_sort_query = '?';
 
                                     if (request('per_page')) {
-                                        $appends_to_sort_query .= 'per_page=' . request('per_page') . '&';
+                                        $appends_to_sort_query .= 'per_page=' . (int) request('per_page') . '&';
                                     }
                                     if (request('custom_search')) {
-                                        $appends_to_sort_query .= 'custom_search=' . request('custom_search') . '&';
+                                        $appends_to_sort_query .= 'custom_search=' . rawurlencode(request('custom_search')) . '&';
                                     }
 
                                     $appends_to_sort_query .= 'sort_by=' . $field['name'] . '&';

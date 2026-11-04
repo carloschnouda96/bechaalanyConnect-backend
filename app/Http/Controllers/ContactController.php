@@ -50,7 +50,11 @@ class ContactController extends Controller
         $contact_form->message = $request->message;
         $contact_form->save();
 
-    Mail::send('emails.contact-request', compact('contact_form', 'requestedLocale'), function ($message) use ($contact_form, $admin_email) {
+        // Same undefined-variable bug as forgot-password: compact() warned, Laravel
+        // turned that into a 500 after the row was already saved, and no mail went out.
+        $requestedLocale = app()->getLocale();
+
+        Mail::send('emails.contact-request', compact('contact_form', 'requestedLocale'), function ($message) use ($contact_form, $admin_email) {
             $message->to($admin_email)->subject($contact_form->subject);
         });
 
