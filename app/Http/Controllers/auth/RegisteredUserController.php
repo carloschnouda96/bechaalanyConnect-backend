@@ -263,7 +263,8 @@ class RegisteredUserController extends Controller
         }
 
         $password_reset_token = bin2hex(random_bytes(16));
-        $user->password_reset_token = $password_reset_token;
+        // Hashed at rest, so reading this column (a database dump, the CMS) yields nothing usable.
+        $user->password_reset_token = hash('sha256', $password_reset_token);
         $user->save();
 
         // Reset links were valid forever — a token from a year-old email still
@@ -319,7 +320,7 @@ class RegisteredUserController extends Controller
         // knowing an email address could take over the account.
         $tokenMatches = $user
             && $user->password_reset_token
-            && hash_equals($user->password_reset_token, $attributes['token']);
+            && hash_equals($user->password_reset_token, hash('sha256', (string) $attributes['token']));
 
         // Expiry. Tokens issued before this mechanism existed have no marker and are
         // still accepted once, so nobody mid-reset is stranded by the deploy.

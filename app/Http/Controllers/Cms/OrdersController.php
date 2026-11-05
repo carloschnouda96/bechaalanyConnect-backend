@@ -19,8 +19,10 @@ use App\Services\Credits\CreditLedger;
 use App\Services\Credits\DuplicateLedgerEntryException;
 use App\Services\Credits\InsufficientCreditsException;
 use App\Services\Credits\StatusChangeOutcome;
+use App\Services\Credits\SupplierFailedOrderException;
 use App\Services\Reseller\OrderWebhooks;
 use App\Services\Suppliers\SupplierOrderFulfillment;
+use App\Services\Suppliers\SupplierOrderResult;
 
 class OrdersController extends Controller
 {
@@ -75,7 +77,7 @@ class OrdersController extends Controller
 
         try {
             $outcome = $this->applyStatusChange((int) $id);
-        } catch (InsufficientCreditsException $e) {
+        } catch (InsufficientCreditsException|SupplierFailedOrderException $e) {
             // Undo the vendor's status write: the ledger is still settled at the old
             // status, so leaving the new one would desynchronise them.
             Order::withoutGlobalScope('cms_draft_flag')
@@ -169,7 +171,7 @@ class OrdersController extends Controller
                 }
 
                 $applied++;
-            } catch (InsufficientCreditsException $e) {
+            } catch (InsufficientCreditsException|SupplierFailedOrderException $e) {
                 // Put this one back and keep going.
                 Order::withoutGlobalScope('cms_draft_flag')
                     ->where('id', $id)
@@ -238,8 +240,8 @@ class OrdersController extends Controller
      *   2. The decision uses the re-read persisted `statuses_id`, never the request.
      *   3. Lock order is fixed everywhere — order row first, then user — matching
      *      SupplierOrderFulfillment, so these paths cannot deadlock against each other.
-     *   4. CreditLedger's UNIQUE idempotency_key makes a duplicate impossible at the
-     *      database level even if 1-3 were all wrong.
+     *   4. CreditLedger's UNIQUE idempotency_key, numbered per occurrence of a transition
+     *      (CreditLedger::occurrenceKey), rejects a duplicate at the database level.
      *   5. total_purchases moves with the same delta, so it cannot drift from
      *      credits_balance.
      */
@@ -261,6 +263,12 @@ class OrdersController extends Controller
 
                 if ($applied === $current) {
                     return null; // already settled — idempotent no-op
+                }
+
+                if ($order->external_status === SupplierOrderResult::FAILED
+                    && $applied === Order::STATUS_REJECTED
+                    && $current !== Order::STATUS_REJECTED) {
+                    throw new SupplierFailedOrderException($applied);
                 }
 
                 $user = User::where('id', $order->users_id)->lockForUpdate()->first();
@@ -292,7 +300,7 @@ class OrdersController extends Controller
                         $delta > 0 ? CreditLedgerEntry::REASON_ORDER_REFUND : CreditLedgerEntry::REASON_ORDER_REDEBIT,
                         $order,
                         ['previous_status' => $applied, 'new_status' => $current],
-                        "order:{$order->id}:{$applied}->{$current}"
+                        CreditLedger::occurrenceKey("order:{$order->id}:{$applied}->{$current}")
                     );
 
                     // Lifetime spend moves opposite to the balance, in SQL so it can
@@ -318,12 +326,18 @@ class OrdersController extends Controller
                 );
             }, 3); // retry on deadlock
         } catch (DuplicateLedgerEntryException $e) {
-            // Another request applied this exact transition first. The transaction
-            // rolled back, so nothing is half-done; this is a success, not an error.
-            Log::info('Order status change already applied by a concurrent request', [
+            // Keys are unique per occurrence and the row lock serialises writers, so this
+            // should not happen. If it does the money did not move, so the status must not
+            // claim it did.
+            Log::critical('Order status change hit a duplicate ledger key; status reverted', [
                 'order_id' => $orderId,
                 'key' => $e->idempotencyKey,
             ]);
+
+            Order::withoutGlobalScope('cms_draft_flag')
+                ->where('id', $orderId)
+                ->whereNotNull('credits_applied_status')
+                ->update(['statuses_id' => DB::raw('credits_applied_status')]);
 
             return null;
         }

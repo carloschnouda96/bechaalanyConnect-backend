@@ -114,6 +114,13 @@ class OrderPlacement
 
         $totalPrice = self::totalFor($variation, $user, $quantity);
 
+        // A $0 total would be accepted by the balance check and write no ledger row, so the
+        // customer gets it free while the supplier still charges us. Supplier feeds do send
+        // zero-priced rows, and sub-cent costs round down to $0.00.
+        if ($totalPrice <= 0) {
+            throw new OrderPlacementException('product_unavailable', __('api.orders.unavailable'), 422);
+        }
+
         $shortfall = null;
         $existing = null;
 
@@ -127,7 +134,9 @@ class OrderPlacement
                 return null;
             }
 
-            if ($lockedUser->credits_balance < $totalPrice) {
+            // In whole cents: comparing the DECIMAL's string against a float is how a customer
+            // holding exactly $0.21 was told they were $0.00 short of a $0.21 order.
+            if ((int) round((float) $lockedUser->credits_balance * 100) < (int) round($totalPrice * 100)) {
                 // Captured under the lock so the figures reported to the user are the
                 // ones the decision was actually made on.
                 $shortfall = [
@@ -224,7 +233,7 @@ class OrderPlacement
 
         return $variation->isProrated()
             ? ProductsVariation::coinTotal($unitPrice, $quantity, $variation->pricingUnit())
-            : $unitPrice * $quantity;
+            : round($unitPrice * $quantity, 2);
     }
 
     public static function unitPriceFor(ProductsVariation $variation, User $user): float

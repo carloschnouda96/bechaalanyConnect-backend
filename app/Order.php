@@ -65,6 +65,23 @@ class Order extends Model
         'cms_draft_flag',
     ];
 
+    /**
+     * A delivered code is a bearer value, released only on an approved order. A supplier can
+     * deliver after an order was rejected and refunded, and the React components were the only
+     * thing hiding it from the owner's JSON. The column keeps the value for a re-approval.
+     * Matches App\Services\Reseller\OrderPresenter.
+     */
+    public function toArray()
+    {
+        $array = parent::toArray();
+
+        if (array_key_exists('code', $array) && (int) ($this->attributes['statuses_id'] ?? 0) !== self::STATUS_APPROVED) {
+            $array['code'] = null;
+        }
+
+        return $array;
+    }
+
     /*
      | `coins` is intentionally NOT in $appends.
      |

@@ -288,6 +288,8 @@
                                     @if (request()->get('admin')['cms_pages'][$page['route']]['permissions']['edit'])
                                         <a href="{{ url(config('hellotree.cms_route_prefix') . '/' . $page['route'] . '/' . $row['id'] . '/edit' . $appends_to_query) }}"
                                             class="btn btn-primary btn-sm {{ $page['edit'] ? '' : 'opacity-half' }} mb-2">Edit</a>
+                                        <a href="{{ url(config('hellotree.cms_route_prefix') . '/users/' . $row['id'] . '/balance') }}"
+                                            class="btn btn-secondary btn-sm mb-2">Balance</a>
                                     @endif
                                 @endif
                                 @if ($page['delete'] || !request()->get('admin')['admin_role_id'])

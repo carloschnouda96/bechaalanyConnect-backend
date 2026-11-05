@@ -2,6 +2,7 @@
 
 namespace Tests\Unit;
 
+use App\BycelPurchase;
 use App\Order;
 use App\ProductsVariation;
 use App\Services\Bycel\BycelBusinessException;
@@ -375,6 +376,43 @@ class BycelConnectorTest extends TestCase
 
         $this->assertSame(SupplierOrderResult::PENDING, $result->status);
         $this->assertNotNull($result->externalOrderId);
+    }
+
+    /**
+     * A 5xx on a purchase says nothing about whether it ran. It must stay open so the report
+     * settles it; marking it "not sent" refunded orders that had been delivered.
+     */
+    public function test_a_server_error_on_a_purchase_stays_open_for_the_report_to_settle(): void
+    {
+        foreach ([502, 503, 504, 408] as $status) {
+            Cache::flush();
+            $this->fakeApi([$this->product()], [$this->reportRow(99)], [$this->reportRow(99)], Http::response('Bad Gateway', $status));
+            [$connector, $ledger] = $this->connector();
+
+            $result = $connector->placeOrder($this->order(), $this->variation('voucher:11'));
+
+            $this->assertSame(SupplierOrderResult::PENDING, $result->status, "HTTP {$status}");
+            $this->assertNotSame(BycelPurchase::STATE_FAILED, $ledger->purchase->state, "HTTP {$status}");
+        }
+    }
+
+    /**
+     * A proven gate rejection bought nothing. The order must be re-sendable and out of the
+     * poller's reach, or the next poll refunds it (every order, during a host migration).
+     */
+    public function test_a_gate_rejection_leaves_the_order_re_sendable(): void
+    {
+        $this->fakeApi([$this->product()], [$this->reportRow(99)], [$this->reportRow(99)], Http::response('192.168.0.1 Forbidden', 403));
+        [$connector] = $this->connector();
+        $order = $this->order();
+
+        try {
+            $connector->placeOrder($order, $this->variation('voucher:11'));
+            $this->fail('Expected a retryable exception.');
+        } catch (SupplierApiException $e) {
+            $this->assertNull($order->external_order_id);
+            $this->assertNull($order->external_status);
+        }
     }
 
     /**

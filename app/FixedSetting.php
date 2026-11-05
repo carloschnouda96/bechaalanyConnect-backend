@@ -31,6 +31,19 @@ class FixedSetting extends Model  implements TranslatableContract
 
     /* Start custom functions */
 
+    use \App\Concerns\HidesExtraAttributes;
+
+    /**
+     * GET /{locale}/general returns this model to anonymous callers. The default profit %
+     * divides a public price back to the supplier cost that ProductsVariation hides.
+     */
+    protected $extraHidden = [
+        'admin_email',
+        'default_profit_percentage',
+        'lbp_per_usd',
+        'usharez_lbp_per_usd',
+    ];
+
     // Below the marker so a hellotree CMS page-schema save cannot rewrite it away.
     //
     // HasFullPath is used for its publicImageUrl() helper. This class defines its

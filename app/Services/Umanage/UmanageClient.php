@@ -221,6 +221,12 @@ class UmanageClient
         if ($response->failed()) {
             $text = trim("U-Manage {$method} {$path}: HTTP {$status} " . ($code ? "[{$code}] " : '') . $message);
 
+            // A 5xx or timeout on a write says nothing about whether it ran, and whether
+            // U-Manage dedupes on app_user_reference is undocumented.
+            if ($indeterminateOnUnknown && ($status >= 500 || $status === 408)) {
+                throw new UmanageIndeterminateException($text, null, $status);
+            }
+
             if ($status >= 500 || in_array($status, self::RETRYABLE_STATUSES, true)) {
                 throw new SupplierApiException($text, null, $status);
             }

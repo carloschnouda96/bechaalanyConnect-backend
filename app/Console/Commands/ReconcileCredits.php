@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\CreditLedgerEntry;
+use App\Order;
 use App\Services\Credits\CreditLedger;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\DB;
@@ -20,6 +21,11 @@ use Illuminate\Support\Facades\Log;
  *   php artisan credits:reconcile           # report
  *   php artisan credits:reconcile --fix     # write a `correction` entry per drift
  *
+ * It also compares each order's and top-up's status with credits_applied_status, the
+ * status the ledger reflects. A difference means the screen says one thing and the money
+ * says another, which balance-vs-ledger cannot see because those two still agree. --fix
+ * does not touch these: only a person can say which side is right.
+ *
  * Run it before and after any money migration (the outputs must match), and nightly
  * via /api/cron/credits/reconcile.
  */
@@ -31,6 +37,49 @@ class ReconcileCredits extends Command
     protected $description = 'Verify every user balance against the credit ledger';
 
     public function handle(): int
+    {
+        $balances = $this->reconcileBalances();
+        $statuses = $this->reconcileStatuses();
+
+        return $balances === self::SUCCESS && $statuses === self::SUCCESS ? self::SUCCESS : self::FAILURE;
+    }
+
+    private function reconcileStatuses(): int
+    {
+        $rows = collect();
+
+        foreach (['orders' => 'order', 'credits_transfer' => 'top-up'] as $table => $label) {
+            // A NULL applied status means nothing has moved yet, which is what Pending means.
+            $mismatched = DB::table($table)
+                ->whereRaw('statuses_id <> COALESCE(credits_applied_status, ?)', [Order::STATUS_PENDING])
+                ->get(['id', 'users_id', 'statuses_id', 'credits_applied_status', 'deleted_at']);
+
+            foreach ($mismatched as $row) {
+                $rows->push([
+                    $label . ' ' . $row->id,
+                    $row->users_id,
+                    $row->statuses_id,
+                    $row->credits_applied_status ?? 'none',
+                    $row->deleted_at ? 'yes' : 'no',
+                ]);
+            }
+        }
+
+        if ($rows->isEmpty()) {
+            $this->info('Every order and top-up status matches what the ledger applied.');
+
+            return self::SUCCESS;
+        }
+
+        $this->error($rows->count() . ' record(s) show a status the ledger has not applied:');
+        $this->table(['record', 'user', 'status', 'ledger applied', 'deleted'], $rows->all());
+
+        Log::warning('Credit reconciliation found status mismatches', ['records' => $rows->pluck(0)->all()]);
+
+        return self::FAILURE;
+    }
+
+    private function reconcileBalances(): int
     {
         $drifted = DB::table('users')
             ->leftJoin('credit_ledger_entries', 'credit_ledger_entries.user_id', '=', 'users.id')

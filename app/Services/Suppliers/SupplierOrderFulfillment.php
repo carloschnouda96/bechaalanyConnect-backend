@@ -10,6 +10,7 @@ use App\ProductsVariation;
 use App\Services\Credits\CreditLedger;
 use App\Services\Credits\DuplicateLedgerEntryException;
 use App\Services\Reseller\OrderWebhooks;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -27,6 +28,9 @@ use Illuminate\Support\Str;
  */
 class SupplierOrderFulfillment
 {
+    /** Longer than the slowest supplier POST (60 s), so a held lock means a live attempt. */
+    private const FULFILL_LOCK_SECONDS = 300;
+
     public function __construct(private SupplierRegistry $registry)
     {
     }
@@ -55,10 +59,27 @@ class SupplierOrderFulfillment
      */
     public function fulfill(Order $order): void
     {
-        if ($order->external_order_id) {
-            return; // already placed
+        // A worker and a Retry click can both get here, and most suppliers have no dedupe key,
+        // so the check below has to happen once at a time and against the stored row.
+        $lock = Cache::lock('supplier-fulfill:' . $order->id, self::FULFILL_LOCK_SECONDS);
+        if (!$lock->get()) {
+            return; // another worker is placing this order right now
         }
 
+        try {
+            $stored = Order::withoutGlobalScope('cms_draft_flag')->whereKey($order->id)->value('external_order_id');
+            if ($order->external_order_id || $stored) {
+                return; // already placed
+            }
+
+            $this->place($order);
+        } finally {
+            $lock->release();
+        }
+    }
+
+    private function place(Order $order): void
+    {
         $variation = ProductsVariation::withoutGlobalScope('cms_draft_flag')
             ->with(['product' => fn ($q) => $q->withoutGlobalScope('cms_draft_flag')])
             ->find($order->product_variation_id);
@@ -142,6 +163,18 @@ class SupplierOrderFulfillment
             && (int) $order->statuses_id === Order::STATUS_APPROVED) {
             OrderWebhooks::orderFinalized((int) $order->id);
         }
+
+        // The supplier delivered something the customer has already been refunded for. The code
+        // stays hidden from them (App\Order::toArray), but someone needs to reconcile this.
+        if ($order->external_status === SupplierOrderResult::COMPLETED
+            && $previous !== SupplierOrderResult::COMPLETED
+            && (int) $order->statuses_id !== Order::STATUS_APPROVED) {
+            Log::critical('Supplier order completed after the order was rejected — reconcile manually', [
+                'order_id' => $order->id,
+                'source' => $order->external_source,
+                'external_order_id' => $order->external_order_id,
+            ]);
+        }
     }
 
     private function refund(Order $order): void
@@ -169,7 +202,7 @@ class SupplierOrderFulfillment
                         'external_source' => $locked->external_source,
                         'external_status' => $locked->external_status,
                     ],
-                    "order:{$locked->id}:supplier_refund",
+                    CreditLedger::occurrenceKey("order:{$locked->id}:supplier_refund"),
                     CreditLedgerEntry::ACTOR_SYSTEM
                 );
 

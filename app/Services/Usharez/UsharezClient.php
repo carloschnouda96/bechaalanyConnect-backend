@@ -163,6 +163,12 @@ class UsharezClient
         if ($response->failed()) {
             $text = trim("Usharez {$method} {$path}: HTTP {$status} {$message}");
 
+            // A 5xx or timeout on a write says nothing about whether it ran. A re-POST can
+            // double-charge, or come back 409 and refund while the first is still running.
+            if ($indeterminateOnUnknown && ($status >= 500 || $status === 408)) {
+                throw new UsharezIndeterminateException($text, null, $status);
+            }
+
             if ($status >= 500 || in_array($status, self::RETRYABLE_STATUSES, true)) {
                 throw new SupplierApiException($text, null, $status);
             }

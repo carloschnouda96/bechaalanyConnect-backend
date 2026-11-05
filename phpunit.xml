@@ -39,5 +39,24 @@
         <env name="QUEUE_CONNECTION" value="sync"/>
         <env name="SESSION_DRIVER" value="array"/>
         <env name="TELESCOPE_ENABLED" value="false"/>
+        <!--
+            Live supplier credentials must not reach the suite, whatever .env holds.
+            Tests that need a connector configured set it with config() and Http::fake().
+        -->
+        <env name="YASSEN_SYNC_ENABLED" value="false" force="true"/>
+        <env name="ALLOSHAREJLE_SYNC_ENABLED" value="false" force="true"/>
+        <env name="SWIFT_SYNC_ENABLED" value="false" force="true"/>
+        <env name="ONEXPANEL_SYNC_ENABLED" value="false" force="true"/>
+        <env name="USHAREZ_SYNC_ENABLED" value="false" force="true"/>
+        <env name="UMANAGE_SYNC_ENABLED" value="false" force="true"/>
+        <env name="BYCEL_SYNC_ENABLED" value="false" force="true"/>
+        <env name="YASSEN_API_TOKEN" value="" force="true"/>
+        <env name="ALLOSHAREJLE_API_TOKEN" value="" force="true"/>
+        <env name="SWIFT_API_KEY" value="" force="true"/>
+        <env name="ONEXPANEL_API_KEY" value="" force="true"/>
+        <env name="USHAREZ_API_KEY" value="" force="true"/>
+        <env name="UMANAGE_API_KEY" value="" force="true"/>
+        <env name="UMANAGE_API_SECRET" value="" force="true"/>
+        <env name="BYCEL_API_KEY" value="" force="true"/>
     </php>
 </phpunit>

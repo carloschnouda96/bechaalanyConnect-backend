@@ -96,6 +96,11 @@ class SupplierHealthController extends Controller
             return back()->with('success', 'Bycel purchase not found.');
         }
 
+        // The page only offers this on ambiguous purchases, but the route takes any id.
+        if ($record->state !== BycelPurchase::STATE_AMBIGUOUS) {
+            return back()->with('success', "Bycel purchase #{$record->id} is not awaiting a decision.");
+        }
+
         $chosen = null;
         foreach ($ledger->candidatesFor($record) as $candidate) {
             if ((string) ($candidate['MerchantPurchaseId'] ?? '') === (string) $merchantPurchaseId) {
@@ -154,7 +159,15 @@ class SupplierHealthController extends Controller
             return back()->with('success', 'Bycel purchase not found.');
         }
 
-        $ledger->markAbandoned($record, 'abandoned via supplier health page');
+        // Conditional, so a double click or a purchase claimed meanwhile cannot refund a
+        // delivered PIN: the page only offers this on ambiguous purchases, the route takes any id.
+        $moved = BycelPurchase::where('id', $record->id)
+            ->where('state', BycelPurchase::STATE_AMBIGUOUS)
+            ->whereNull('merchant_purchase_id')
+            ->update(['state' => BycelPurchase::STATE_ABANDONED, 'resolver_reason' => 'abandoned via supplier health page']);
+        if ($moved === 0) {
+            return back()->with('success', "Bycel purchase #{$record->id} is not awaiting a decision.");
+        }
 
         $order = Order::withoutGlobalScope('cms_draft_flag')->find($record->order_id);
         if ($order) {

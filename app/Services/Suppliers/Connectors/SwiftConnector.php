@@ -5,9 +5,11 @@ namespace App\Services\Suppliers\Connectors;
 use App\Order;
 use App\ProductsVariation;
 use App\Services\Suppliers\Contracts\SupplierConnector;
+use App\Services\Suppliers\SupplierIndeterminateException;
 use App\Services\Suppliers\SupplierOrderResult;
 use App\Services\Suppliers\SupplierProduct;
 use App\Services\Swift\SwiftClient;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
 /**
@@ -27,6 +29,9 @@ use Illuminate\Support\Str;
 class SwiftConnector implements SupplierConnector
 {
     public const KEY = 'swift';
+
+    /** Marks an order whose add outcome is unknown: not a Swift order id, so never polled. */
+    private const PARKED_ID_PREFIX = 'parked-';
 
     public function __construct(private SwiftClient $client)
     {
@@ -85,11 +90,28 @@ class SwiftConnector implements SupplierConnector
     {
         $service = $variation->external_id ?: $variation->product->external_id;
 
-        $response = $this->client->addOrder(
-            $service,
-            (string) $order->recipient_user,
-            (int) $order->quantity,
-        );
+        try {
+            $response = $this->client->addOrder(
+                $service,
+                (string) $order->recipient_user,
+                (int) $order->quantity,
+            );
+        } catch (SupplierIndeterminateException $e) {
+            // Never refund and never re-send: park it PENDING for a human, who rejects it in
+            // the CMS to refund if the panel shows no such order. The id keeps fulfill() from
+            // re-sending, and checkOrder() does not poll it.
+            Log::critical('Supplier order outcome indeterminate — reconcile manually', [
+                'order_id' => $order->id,
+                'source' => $this->key(),
+                'error' => $e->getMessage(),
+            ]);
+
+            return new SupplierOrderResult(
+                externalOrderId: self::PARKED_ID_PREFIX . ($order->external_order_uuid ?: $order->id),
+                status: SupplierOrderResult::PENDING,
+                raw: ['supplier_indeterminate' => true, 'error' => $e->getMessage()],
+            );
+        }
 
         return new SupplierOrderResult(
             externalOrderId: isset($response['order']) ? (string) $response['order'] : null,
@@ -100,6 +122,14 @@ class SwiftConnector implements SupplierConnector
 
     public function checkOrder(Order $order): SupplierOrderResult
     {
+        if (str_starts_with((string) $order->external_order_id, self::PARKED_ID_PREFIX)) {
+            return new SupplierOrderResult(
+                $order->external_order_id,
+                $order->external_status ?: SupplierOrderResult::PENDING,
+                is_array($order->external_response) ? $order->external_response : [],
+            );
+        }
+
         $response = $this->client->status((string) $order->external_order_id);
 
         return new SupplierOrderResult(

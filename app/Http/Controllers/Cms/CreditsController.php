@@ -262,7 +262,7 @@ class CreditsController extends Controller
                         $delta > 0 ? CreditLedgerEntry::REASON_TOPUP_APPROVED : CreditLedgerEntry::REASON_TOPUP_REVERTED,
                         $transfer,
                         ['previous_status' => $applied, 'new_status' => $current],
-                        "topup:{$transfer->id}:{$applied}->{$current}"
+                        CreditLedger::occurrenceKey("topup:{$transfer->id}:{$applied}->{$current}")
                     );
 
                     // received_amount tracks lifetime credited top-ups and moves with
@@ -278,10 +278,18 @@ class CreditsController extends Controller
                 return new StatusChangeOutcome(from: $applied, to: $current, delta: $delta);
             }, 3);
         } catch (DuplicateLedgerEntryException $e) {
-            Log::info('Credit transfer status change already applied by a concurrent request', [
+            // Keys are unique per occurrence and the row lock serialises writers, so this
+            // should not happen. If it does the money did not move, so the status must not
+            // claim it did.
+            Log::critical('Credit transfer status change hit a duplicate ledger key; status reverted', [
                 'transfer_id' => $transferId,
                 'key' => $e->idempotencyKey,
             ]);
+
+            CreditsTransfer::withoutGlobalScope('cms_draft_flag')
+                ->where('id', $transferId)
+                ->whereNotNull('credits_applied_status')
+                ->update(['statuses_id' => DB::raw('credits_applied_status')]);
 
             return null;
         }

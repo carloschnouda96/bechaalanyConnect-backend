@@ -3,6 +3,7 @@
 namespace App\Http\Middleware;
 
 use Closure;
+use Hellotreedigital\Cms\Models\CmsPage;
 use Illuminate\Http\Request;
 
 /**
@@ -19,6 +20,9 @@ use Illuminate\Http\Request;
  * Extra positional values also reached where()'s $boolean, which is concatenated
  * into the SQL, and the whereHas branch implodes the ids into a whereRaw unbound.
  *
+ * Filters and sorting are also held to the fields the page actually offers. Filtering or
+ * sorting on a hidden column answers questions about its values, one request at a time.
+ *
  * This lives here rather than in the vendor controller because vendor/ is not
  * tracked or deployed — a patch there would vanish on the next composer install.
  */
@@ -26,15 +30,31 @@ class SanitizeCmsListFilters
 {
     private const CONSTRAINTS = ['whereIn', 'whereHas'];
 
-    private const IDENTIFIER = '/^[A-Za-z_][A-Za-z0-9_]*$/';
+    private const IDENTIFIER = '/^[A-Za-z_][A-Za-z0-9_]*\z/';
+
+    /** Sortable without being a registered field: the vendor's own defaults. */
+    private const SYSTEM_SORT_COLUMNS = ['id', 'ht_pos', 'created_at', 'updated_at'];
 
     public function handle(Request $request, Closure $next)
     {
-        if (!$request->has('custom_validation') || !$this->isCmsPath($request)) {
+        if ((!$request->has('custom_validation') && !$request->has('sort_by')) || !$this->isCmsPath($request)) {
             return $next($request);
         }
 
-        $clean = $this->sanitize($request->input('custom_validation'));
+        $fields = $this->pageFields($request);
+
+        if ($request->has('sort_by') && !$this->sortable($request->input('sort_by'), $fields)) {
+            foreach (['sort_by', 'sort_by_direction'] as $key) {
+                $request->query->remove($key);
+                $request->request->remove($key);
+            }
+        }
+
+        if (!$request->has('custom_validation')) {
+            return $next($request);
+        }
+
+        $clean = $this->sanitize($request->input('custom_validation'), $fields);
 
         if ($clean === null) {
             abort(400, 'Invalid list filter.');
@@ -52,6 +72,39 @@ class SanitizeCmsListFilters
         return $next($request);
     }
 
+    /**
+     * The page's registered fields keyed by name, or null when this path is not a generated
+     * CMS page. The vendor list action only exists for those, so there is nothing to hold it to.
+     *
+     * @return array<string,array>|null
+     */
+    private function pageFields(Request $request): ?array
+    {
+        $page = CmsPage::where('route', $request->segment(2))->where('custom_page', 0)->first();
+        if (!$page) {
+            return null;
+        }
+
+        $fields = is_array($page->fields) ? $page->fields : json_decode((string) $page->fields, true);
+
+        return array_column(is_array($fields) ? $fields : [], null, 'name');
+    }
+
+    private function sortable($column, ?array $fields): bool
+    {
+        if ($fields === null) {
+            return true;
+        }
+        if (!is_string($column)) {
+            return false;
+        }
+        if (in_array($column, self::SYSTEM_SORT_COLUMNS, true)) {
+            return true;
+        }
+
+        return isset($fields[$column]) && empty($fields[$column]['hide_index']);
+    }
+
     private function isCmsPath(Request $request): bool
     {
         $prefix = trim(config('hellotree.cms_route_prefix'), '/');
@@ -60,7 +113,7 @@ class SanitizeCmsListFilters
     }
 
     /** The sanitized filter list, or null when any entry is not a legitimate filter. */
-    private function sanitize($filters): ?array
+    private function sanitize($filters, ?array $fields): ?array
     {
         if (!is_array($filters)) {
             return null;
@@ -78,6 +131,10 @@ class SanitizeCmsListFilters
 
             // Exactly [field, ids]: a third positional value is what reached where()'s $boolean.
             if (!is_string($field) || !preg_match(self::IDENTIFIER, $field) || count(array_diff_key($value, [0 => 0, 1 => 1]))) {
+                return null;
+            }
+
+            if ($fields !== null && !$this->offeredAsFilter($fields[$field] ?? null, $filter)) {
                 return null;
             }
 
@@ -105,5 +162,15 @@ class SanitizeCmsListFilters
         }
 
         return $clean;
+    }
+
+    /** The list page builds its filter form from these fields, with this table on each. */
+    private function offeredAsFilter(?array $field, array $filter): bool
+    {
+        if (!$field || !in_array($field['form_field'] ?? null, ['select', 'select multiple'], true)) {
+            return false;
+        }
+
+        return !isset($filter['table']) || $filter['table'] === ($field['form_field_additionals_1'] ?? null);
     }
 }

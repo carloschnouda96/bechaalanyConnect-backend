@@ -86,6 +86,36 @@ class StorefrontSellabilityTest extends TestCase
         $this->assertFalse($ids->contains($inactive->id));
     }
 
+    public function test_single_product_returns_404_for_a_non_sellable_product(): void
+    {
+        $subcategory = $this->subcategory();
+
+        foreach ([[null, false], [Product::SUPPLIER_WITHDRAWN, true], [Product::SUPPLIER_OUT_OF_STOCK, true]] as [$status, $active]) {
+            $product = $this->product($subcategory, $status);
+            $product->is_active = $active ? 1 : 0;
+            $product->save();
+
+            $this->getJson($this->productUrl($product, $subcategory))->assertNotFound();
+        }
+    }
+
+    public function test_general_settings_do_not_carry_internal_fields(): void
+    {
+        $settings = (new \App\FixedSetting())->forceFill([
+            'admin_email' => 'dummy-admin@example.test',
+            'default_profit_percentage' => 20,
+            'lbp_per_usd' => 90000,
+            'usharez_lbp_per_usd' => 90000,
+        ]);
+
+        $json = $settings->toArray();
+
+        foreach (['admin_email', 'default_profit_percentage', 'lbp_per_usd', 'usharez_lbp_per_usd'] as $field) {
+            $this->assertArrayNotHasKey($field, $json);
+        }
+        $this->assertSame('dummy-admin@example.test', $settings->admin_email, 'internal callers still read it');
+    }
+
     public function test_single_product_hides_non_sellable_related_products(): void
     {
         $subcategory = $this->subcategory();

@@ -4,6 +4,7 @@ namespace Tests;
 
 use Illuminate\Foundation\Testing\DatabaseTransactions;
 use Illuminate\Foundation\Testing\TestCase as BaseTestCase;
+use Illuminate\Support\Facades\Http;
 
 abstract class TestCase extends BaseTestCase
 {
@@ -23,4 +24,15 @@ abstract class TestCase extends BaseTestCase
      * itself in tearDown.
      */
     use DatabaseTransactions;
+
+    /**
+     * The local .env holds live supplier credentials, and a supplier purchase is an
+     * ordinary HTTP call. An unfaked request must fail the test, never leave the machine.
+     */
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        Http::preventStrayRequests();
+    }
 }

@@ -50,7 +50,7 @@ class ProductController extends Controller
             })
             ->orderBy('ht_pos')
             ->get();
-        $product = Product::where('slug', $slug)
+        $product = Product::sellable()->where('slug', $slug)
             ->with(['related_products' => fn ($query) => $query->listable()])
             ->with('product_type')
             ->firstOrFail();
