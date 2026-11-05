@@ -118,6 +118,26 @@ class CreditLedger
     }
 
     /**
+     * The idempotency key for this occurrence of a transition.
+     *
+     * A record can legitimately pass through the same transition again: Approved →
+     * Rejected → Approved → Rejected when staff correct themselves. Reusing the bare
+     * transition as the key made the second occurrence collide with the first, roll back
+     * and look like "already applied", while the status stayed changed. A replay of one
+     * occurrence is stopped by the caller's check under the row lock (applied === current),
+     * so numbering occurrences loses no protection. The first keeps the bare key, which
+     * is what every existing row holds. Call it with the record row locked.
+     */
+    public static function occurrenceKey(string $transitionKey): string
+    {
+        $previous = CreditLedgerEntry::where('idempotency_key', $transitionKey)
+            ->orWhere('idempotency_key', 'like', addcslashes($transitionKey, '\\%_') . '#%')
+            ->count();
+
+        return $previous === 0 ? $transitionKey : $transitionKey . '#' . ($previous + 1);
+    }
+
+    /**
      * Sum of every ledger entry for a user. Should always equal users.credits_balance;
      * `php artisan credits:reconcile` is what checks that.
      */

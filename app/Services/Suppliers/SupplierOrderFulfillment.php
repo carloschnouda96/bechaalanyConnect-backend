@@ -202,7 +202,7 @@ class SupplierOrderFulfillment
                         'external_source' => $locked->external_source,
                         'external_status' => $locked->external_status,
                     ],
-                    "order:{$locked->id}:supplier_refund",
+                    CreditLedger::occurrenceKey("order:{$locked->id}:supplier_refund"),
                     CreditLedgerEntry::ACTOR_SYSTEM
                 );
 

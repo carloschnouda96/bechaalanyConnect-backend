@@ -563,7 +563,12 @@ class SupplierCatalogSync
         if ($dto->details !== null) {
             $variation->external_details = $dto->details;
         }
-        $variation->supplier_status = $dto->available ? Product::SUPPLIER_AVAILABLE : Product::SUPPLIER_OUT_OF_STOCK;
+        // A zero price is not for sale, whatever the feed says: suppliers do list rows at 0,
+        // and a sub-cent cost rounds down to $0.00. A later sync with a real price, or a
+        // manual price, puts it back on sale with no admin action.
+        $variation->supplier_status = $dto->available && (float) $variation->price > 0
+            ? Product::SUPPLIER_AVAILABLE
+            : Product::SUPPLIER_OUT_OF_STOCK;
         $variation->cms_draft_flag = 0;
         ProductsVariation::applyingSystemPricing(fn () => $variation->save());
 

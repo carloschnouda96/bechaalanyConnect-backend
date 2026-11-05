@@ -2,6 +2,7 @@
 
 namespace App\Providers;
 
+use App\Support\ClientIp;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Foundation\Support\Providers\RouteServiceProvider as ServiceProvider;
 use Illuminate\Http\Request;
@@ -57,7 +58,7 @@ class RouteServiceProvider extends ServiceProvider
                 return Limit::none();
             }
 
-            return Limit::perMinute(60)->by($request->user()?->id ?: $request->ip());
+            return Limit::perMinute(60)->by($request->user()?->id ?: ClientIp::of($request));
         });
 
         // Reseller API, keyed by the API key itself (hashed — never the raw key)
@@ -79,7 +80,7 @@ class RouteServiceProvider extends ServiceProvider
             $email = strtolower(trim((string) $request->input('email')));
 
             return array_filter([
-                Limit::perMinute(5)->by('auth-ip:' . $request->ip()),
+                Limit::perMinute(5)->by('auth-ip:' . ClientIp::of($request)),
                 $email !== '' ? Limit::perMinute(5)->by('auth-email:' . $email) : null,
             ]);
         });

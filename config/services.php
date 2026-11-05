@@ -239,4 +239,13 @@ return [
         'token' => env('CRON_TOKEN'),
     ],
 
+    /*
+    | Shared with the Next.js server (same variable, server-side only). Lets NextAuth tell
+    | the rate limiters the real client IP on the logins it makes on a customer's behalf.
+    | See App\Support\ClientIp.
+    */
+    'internal_proxy' => [
+        'secret' => env('INTERNAL_PROXY_SECRET'),
+    ],
+
 ];

@@ -153,6 +153,14 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
     Route::put('/credits-transfer/{id}', 'App\Http\Controllers\Cms\CreditsController@update')->whereNumber('id');
     Route::put('/users/{id}', 'App\Http\Controllers\Cms\UsersController@update')->whereNumber('id');
 
+    // A record tied to money must be rejected before it can be deleted.
+    Route::delete('/orders/{id}', 'App\Http\Controllers\Cms\GuardedRecordDeleteController@destroyOrders');
+    Route::delete('/credits-transfer/{id}', 'App\Http\Controllers\Cms\GuardedRecordDeleteController@destroyTransfers');
+
+    // The only way staff change a balance by hand: through the ledger, with a reason.
+    Route::get('/users/{id}/balance', 'App\Http\Controllers\Cms\UserBalanceController@show')->whereNumber('id');
+    Route::put('/users/{id}/balance', 'App\Http\Controllers\Cms\UserBalanceController@adjust')->whereNumber('id');
+
     /*
      | Vendor CRUD actions refused outright (registered after — and so over — the vendor's
      | identical URIs). cms_pages.add/delete alone only hide the buttons from role admins;
