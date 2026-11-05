@@ -3,7 +3,10 @@
 namespace App\Services\Swift;
 
 use App\Services\Suppliers\SupplierApiException;
+use App\Services\Suppliers\SupplierIndeterminateException;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -72,8 +75,8 @@ class SwiftClient
         $params['key'] = (string) $this->key;
 
         $response = in_array($action, self::WRITE_ACTIONS, true)
-            ? $this->request()->post('/api/v2', $params)
-            : $this->request()->get('/api/v2', $params);
+            ? $this->write($action, $params)
+            : $this->request()->retry(2, 500, throw: false)->get('/api/v2', $params);
 
         if ($response->failed()) {
             throw new SupplierApiException(
@@ -104,11 +107,33 @@ class SwiftClient
         return is_array($body) ? $body : [];
     }
 
+    /**
+     * One attempt only: the panel has no dedupe key, so a re-sent add is a second purchase.
+     * A timeout or 5xx says nothing about whether it ran.
+     */
+    private function write(string $action, array $params): Response
+    {
+        try {
+            $response = $this->request()->post('/api/v2', $params);
+        } catch (ConnectionException $e) {
+            throw new SupplierIndeterminateException("Swift API request ({$action}) outcome unknown: {$e->getMessage()}");
+        }
+
+        if ($response->serverError() || $response->status() === 408) {
+            throw new SupplierIndeterminateException(
+                "Swift API request ({$action}) outcome unknown: HTTP {$response->status()}",
+                null,
+                $response->status()
+            );
+        }
+
+        return $response;
+    }
+
     private function request(): PendingRequest
     {
         return Http::baseUrl($this->baseUrl)
             ->acceptJson()
-            ->timeout(30)
-            ->retry(2, 500, throw: false);
+            ->timeout(30);
     }
 }

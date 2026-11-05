@@ -301,10 +301,15 @@ class BycelConnector implements SupplierConnector, PartialCatalogAware
                 raw: ['bycel_indeterminate' => true, 'error' => $e->getMessage()],
             );
         } catch (SupplierApiException $e) {
-            // Auth / IP / transport: the request was rejected at the gate, so nothing
-            // was bought. Mark the intent dead so a retry may legitimately re-POST,
-            // then rethrow so the job retries WITHOUT refunding the customer.
+            // Auth / IP / rate limit: the request was rejected at the gate, so nothing was
+            // bought. Mark the intent dead and clear what openIntent() pre-wrote: left in place,
+            // fulfill() would skip every retry and the next poll would refund the customer.
             $this->ledger->markFailed($purchase, 'not sent: ' . $e->getMessage());
+            Order::withoutGlobalScope('cms_draft_flag')
+                ->whereKey($order->id)
+                ->update(['external_order_id' => null, 'external_status' => null]);
+            $order->external_order_id = null;
+            $order->external_status = null;
             throw $e;
         }
 

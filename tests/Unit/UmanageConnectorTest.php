@@ -446,7 +446,7 @@ class UmanageConnectorTest extends TestCase
     /** 429 is the documented rate-limit code — retry, never refund. */
     public function test_rate_limit_and_server_errors_throw_rather_than_refunding(): void
     {
-        foreach ([429, 503, 401] as $status) {
+        foreach ([429, 401] as $status) {
             Http::fake(['*' => Http::response(['error' => ['code' => 'X', 'message' => 'nope']], $status)]);
 
             try {
@@ -459,6 +459,20 @@ class UmanageConnectorTest extends TestCase
                 $this->assertNotInstanceOf(UmanageBusinessException::class, $e, "HTTP {$status} must be retryable");
             }
         }
+    }
+
+    /** A 5xx on a write says nothing about whether it ran: park it, never re-send. */
+    public function test_server_error_on_a_write_parks_the_order(): void
+    {
+        Http::fake(['*' => Http::response(['error' => ['code' => 'X', 'message' => 'down']], 503)]);
+
+        $result = $this->connector()->placeOrder(
+            $this->order(['recipient_phone_number' => '70123456', 'quantity' => 1]),
+            $this->variation('bundle:1')
+        );
+
+        $this->assertSame(SupplierOrderResult::PENDING, $result->status);
+        $this->assertStringStartsWith('bundle:', (string) $result->externalOrderId);
     }
 
     public function test_indeterminate_post_returns_pending_with_prefixed_synthetic_id(): void

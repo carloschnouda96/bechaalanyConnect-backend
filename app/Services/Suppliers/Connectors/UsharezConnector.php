@@ -295,7 +295,7 @@ class UsharezConnector implements SupplierConnector, PartialCatalogAware, HasCre
             );
         }
 
-        // A plain SupplierApiException (5xx / 401) deliberately propagates out of
+        // A plain SupplierApiException (401 / 429) deliberately propagates out of
         // SupplierOrderFulfillment::fulfill() so FulfillSupplierOrderJob retries.
     }
 

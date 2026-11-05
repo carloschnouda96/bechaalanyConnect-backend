@@ -230,6 +230,16 @@ class BycelClient
         }
 
         if ($response->failed()) {
+            // A 5xx or timeout on a purchase says nothing about whether it ran, so the
+            // purchase report has to settle it.
+            if ($method === 'POST' && ($status >= 500 || $status === 408)) {
+                throw new BycelIndeterminateException(
+                    "Bycel POST {$path}: HTTP {$status} {$this->snippet($raw)}",
+                    null,
+                    $status
+                );
+            }
+
             if ($status >= 500 || in_array($status, self::RETRYABLE_STATUSES, true)) {
                 throw new SupplierApiException(
                     "Bycel {$method} {$path}: HTTP {$status} {$this->snippet($raw)}",

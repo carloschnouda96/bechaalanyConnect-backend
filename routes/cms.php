@@ -167,6 +167,21 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
         Route::delete('/' . $referencePage . '/{id}', $locked)->defaults('page', $referencePage);
     }
 
+    /*
+     | AdminMiddleware treats every verb but POST, PUT and DELETE as a read, so PATCH on these
+     | vendor resources needed only `read` and wrote no CMS log. The forms submit PUT. These
+     | replace the vendor routes only when the URI matches exactly, parameter name included.
+     */
+    Route::patch('/admins/{admin}', $locked)->defaults('page', 'admins');
+    Route::patch('/admin-roles/{admin_role}', $locked)->defaults('page', 'admin-roles');
+    Route::patch('/languages/{language}', $locked)->defaults('page', 'languages');
+
+    /* Super admins are hidden from the vendor list but its record actions take any id. */
+    Route::get('/admins/{admin}', 'App\Http\Controllers\Cms\AdminsController@show');
+    Route::get('/admins/{admin}/edit', 'App\Http\Controllers\Cms\AdminsController@edit');
+    Route::put('/admins/{admin}', 'App\Http\Controllers\Cms\AdminsController@update');
+    Route::delete('/admins/{admin}', 'App\Http\Controllers\Cms\AdminsController@destroy');
+
 
 	/* End admin route group */
 

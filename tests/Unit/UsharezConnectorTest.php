@@ -336,20 +336,22 @@ class UsharezConnectorTest extends TestCase
         $this->assertSame(SupplierOrderResult::FAILED, $result->status);
     }
 
-    /** 5xx must propagate so the job retries rather than refunding the customer. */
-    public function test_server_error_throws_so_the_job_retries(): void
+    /**
+     * A 5xx on the allocate says nothing about whether it ran, and a re-POST can double-charge
+     * or come back 409 and refund while the first is still running. Park it, like a dropped POST.
+     */
+    public function test_server_error_on_a_write_parks_the_order(): void
     {
         Http::fake(['*' => Http::response('gateway down', 503)]);
 
-        try {
-            $this->connector()->placeOrder(
-                $this->order(['recipient_phone_number' => '03123456', 'quantity' => 1]),
-                $this->variation('quota:11')
-            );
-            $this->fail('Expected a SupplierApiException for a 503.');
-        } catch (SupplierApiException $e) {
-            $this->assertNotInstanceOf(UsharezBusinessException::class, $e);
-        }
+        $result = $this->connector()->placeOrder(
+            $this->order(['recipient_phone_number' => '03123456', 'quantity' => 1]),
+            $this->variation('quota:11')
+        );
+
+        $this->assertSame(SupplierOrderResult::PENDING, $result->status);
+        $this->assertNotEmpty($result->externalOrderId);
+        Http::assertSentCount(1);
     }
 
     /** A revoked token must not look like a customer-facing rejection. */

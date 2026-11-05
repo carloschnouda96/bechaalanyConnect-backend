@@ -74,34 +74,45 @@ class BycelPurchaseLedger
             throw new SupplierApiException('Bycel purchase requires orders.external_order_uuid to be set.');
         }
 
-        return DB::transaction(function () use ($order, $family, $productId, $snapshot, $watermark, $recipient, $uuid) {
-            $purchase = BycelPurchase::create([
-                'order_id' => $order->id,
-                'order_uuid' => $uuid,
-                'family' => $family,
-                'product_id' => $productId,
-                'recipient' => $recipient,
-                'watermark_id' => $watermark,
-                'state' => BycelPurchase::STATE_SENT,
-                'snapshot' => $snapshot,
-                'request_at' => now(),
+        return DB::transaction(fn () => $this->writeIntent($order, $family, $productId, $snapshot, $watermark, $recipient, $uuid));
+    }
+
+    protected function writeIntent(
+        Order $order,
+        string $family,
+        string $productId,
+        array $snapshot,
+        int $watermark,
+        ?string $recipient,
+        string $uuid
+    ): BycelPurchase {
+        // order_uuid is UNIQUE: a retry after a gate rejection re-opens that dead intent.
+        $purchase = BycelPurchase::updateOrCreate(['order_uuid' => $uuid], [
+            'order_id' => $order->id,
+            'family' => $family,
+            'product_id' => $productId,
+            'recipient' => $recipient,
+            'watermark_id' => $watermark,
+            'state' => BycelPurchase::STATE_SENT,
+            'snapshot' => $snapshot,
+            'resolver_reason' => null,
+            'request_at' => now(),
+        ]);
+
+        Order::withoutGlobalScope('cms_draft_flag')
+            ->where('id', $order->id)
+            ->update([
+                'external_source' => 'bycel',
+                'external_order_id' => $family . ':' . $uuid,
+                'external_status' => \App\Services\Suppliers\SupplierOrderResult::PENDING,
             ]);
 
-            Order::withoutGlobalScope('cms_draft_flag')
-                ->where('id', $order->id)
-                ->update([
-                    'external_source' => 'bycel',
-                    'external_order_id' => $family . ':' . $uuid,
-                    'external_status' => \App\Services\Suppliers\SupplierOrderResult::PENDING,
-                ]);
+        // Keep the in-memory model consistent with what we just persisted.
+        $order->external_source = 'bycel';
+        $order->external_order_id = $family . ':' . $uuid;
+        $order->external_status = \App\Services\Suppliers\SupplierOrderResult::PENDING;
 
-            // Keep the in-memory model consistent with what we just persisted.
-            $order->external_source = 'bycel';
-            $order->external_order_id = $family . ':' . $uuid;
-            $order->external_status = \App\Services\Suppliers\SupplierOrderResult::PENDING;
-
-            return $purchase;
-        });
+        return $purchase;
     }
 
     public function recordResponse(BycelPurchase $purchase, string $result): void

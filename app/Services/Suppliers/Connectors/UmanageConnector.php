@@ -445,7 +445,7 @@ class UmanageConnector implements SupplierConnector, PartialCatalogAware
             );
         }
 
-        // A plain SupplierApiException (5xx / 401 / 429) propagates so the job retries.
+        // A plain SupplierApiException (401 / 429) propagates so the job retries.
     }
 
     private function placeBundleOrder(Order $order, string $ref): SupplierOrderResult
