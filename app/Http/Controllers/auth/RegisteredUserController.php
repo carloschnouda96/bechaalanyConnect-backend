@@ -4,21 +4,29 @@ namespace App\Http\Controllers\auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
+use App\Services\Auth\CredentialRevocation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\RateLimiter;
 
 class RegisteredUserController extends Controller
 {
     /** Wrong codes tolerated per email before a new code must be requested. */
     private const MAX_VERIFICATION_ATTEMPTS = 5;
 
+    /** Wrong codes per address per day. A resend resets the counter above, not this. */
+    private const DAILY_VERIFICATION_ATTEMPTS = 20;
+
     /** How long an emailed 6-digit verification code stays valid. */
     private const VERIFICATION_TTL_MINUTES = 30;
 
     /** How long a password-reset link stays valid. */
     private const RESET_TTL_MINUTES = 60;
+
+    /** A repeat request inside this window sends nothing and keeps the emailed link valid. */
+    private const RESET_COOLDOWN_MINUTES = 5;
 
     public function create()
     {
@@ -67,7 +75,7 @@ class RegisteredUserController extends Controller
             'verification_statuses_id' => User::VERIFICATION_UNSUBMITTED,
         ]);
         // Starts the code's validity window; verifyEmail() checks it.
-        Cache::put(self::issuedAtKey(strtolower(trim($user->email))), now(), now()->addMinutes(self::VERIFICATION_TTL_MINUTES));
+        Cache::put(self::issuedAtKey(strtolower(trim($user->email))), now(), self::issuedAtMarkerTtl());
 
         $confirm_email_url = config('app.front_url') . '/' . app()->getLocale() . '/email-verification/' . $user->email . '/' . $email_confirmation_token;
         try {
@@ -110,28 +118,38 @@ class RegisteredUserController extends Controller
 
         $email = strtolower(trim($attributes['email']));
 
-        // Attempt ceiling, held in the cache so this stays a code-only change.
-        // Independent of the per-route throttle: that one bounds request rate, this
-        // one bounds guesses against a single account before the code is burned.
+        $user = User::findByExactEmail($email);
+
+        $tokenMatches = $user
+            && $user->verification_token !== null
+            && hash_equals((string) $user->verification_token, (string) $attributes['token']);
+
+        // Attempt ceilings, held in the cache so this stays a code-only change.
+        // Independent of the per-route throttle: that one bounds request rate, these
+        // bound guesses against a single account. Only a caller holding the link token
+        // is counted, so a stranger sending wrong tokens cannot lock out the registrant.
         $attemptKey = 'verify-email:attempts:' . sha1($email);
-        if (Cache::get($attemptKey, 0) >= self::MAX_VERIFICATION_ATTEMPTS) {
+        $dailyKey = 'verify-email:daily:' . sha1($email);
+        if ($tokenMatches && (
+            Cache::get($attemptKey, 0) >= self::MAX_VERIFICATION_ATTEMPTS
+            || RateLimiter::tooManyAttempts($dailyKey, self::DAILY_VERIFICATION_ATTEMPTS)
+        )) {
             return response()->json([
                 'message' => __('api.auth.too_many_codes'),
                 'code' => 'verification_locked',
             ], 429);
         }
 
-        $user = User::where('email', $email)->first();
-
-        $valid = $user
-            && $user->verification_token !== null
+        $valid = $tokenMatches
             && $user->account_verification_code !== null
-            && hash_equals((string) $user->verification_token, (string) $attributes['token'])
             && hash_equals((string) $user->account_verification_code, (string) $attributes['code'])
             && $this->verificationCodeIsFresh($email);
 
         if (!$valid) {
-            Cache::put($attemptKey, Cache::get($attemptKey, 0) + 1, now()->addMinutes(30));
+            if ($tokenMatches) {
+                Cache::put($attemptKey, Cache::get($attemptKey, 0) + 1, now()->addMinutes(30));
+                RateLimiter::hit($dailyKey, 86400);
+            }
 
             // Deliberately identical whether the email is unknown, the token is wrong
             // or the code is wrong — otherwise this endpoint reports which accounts exist.
@@ -160,15 +178,21 @@ class RegisteredUserController extends Controller
     }
 
     /**
-     * Codes issued before this cache-expiry mechanism existed have no issued-at
-     * marker; those are accepted so the change does not lock out users who
-     * registered just before deploy. Newly issued codes always have one.
+     * A missing marker counts as expired: it used to count as fresh, and its cache TTL
+     * equalled the window, so the marker vanished at the moment it should have started
+     * refusing and no code ever expired. A resend issues a new code and a new marker.
      */
     private function verificationCodeIsFresh(string $email): bool
     {
         $issuedAt = Cache::get(self::issuedAtKey($email));
 
-        return $issuedAt === null || $issuedAt->addMinutes(self::VERIFICATION_TTL_MINUTES)->isFuture();
+        return $issuedAt !== null && $issuedAt->copy()->addMinutes(self::VERIFICATION_TTL_MINUTES)->isFuture();
+    }
+
+    /** Outlives the window, so an expired code is refused by the check above. */
+    private static function issuedAtMarkerTtl(): \DateTimeInterface
+    {
+        return now()->addMinutes(self::VERIFICATION_TTL_MINUTES * 2);
     }
 
     private static function issuedAtKey(string $email): string
@@ -182,7 +206,7 @@ class RegisteredUserController extends Controller
             'email' => ['required', 'email', 'max:255']
         ]);
         $email = strtolower(trim($request->input('email')));
-        $user = User::where('email', $email)->first();
+        $user = User::findByExactEmail($email);
 
         // One response for every path.
         //
@@ -212,14 +236,14 @@ class RegisteredUserController extends Controller
         $user->save();
 
         // Reset the expiry window and the wrong-guess counter for the new code.
-        Cache::put(self::issuedAtKey($email), now(), now()->addMinutes(self::VERIFICATION_TTL_MINUTES));
+        Cache::put(self::issuedAtKey($email), now(), self::issuedAtMarkerTtl());
         Cache::forget('verify-email:attempts:' . sha1($email));
 
         $confirm_email_url = config('app.front_url') . '/' . app()->getLocale() . '/email-verification/' . $user->email . '/' . $user->verification_token;
 
         try {
-            Mail::send('emails.verify-email', compact('account_verification_code', 'user', 'confirm_email_url'), function ($message) use ($email) {
-                $message->to($email)->subject(__('emails.subjects.verify_email'));
+            Mail::send('emails.verify-email', compact('account_verification_code', 'user', 'confirm_email_url'), function ($message) use ($user) {
+                $message->to($user->email)->subject(__('emails.subjects.verify_email'));
             });
         } catch (\Exception $e) {
             // Swallowed on purpose: reporting a send failure here would re-introduce
@@ -246,7 +270,7 @@ class RegisteredUserController extends Controller
             'email' => ['required', 'email', 'max:255']
         ]);
         $email = strtolower(trim($attributes['email']));
-        $user = User::where('email', $email)->first();
+        $user = User::findByExactEmail($email);
 
         // Identical response whether or not the address exists.
         //
@@ -262,14 +286,18 @@ class RegisteredUserController extends Controller
             return $genericResponse;
         }
 
-        $password_reset_token = bin2hex(random_bytes(16));
+        // A repeat request would rotate the token, so anyone knowing the address could
+        // keep killing the link the owner was just sent, and could flood their inbox.
+        if (!Cache::add(CredentialRevocation::resetCooldownKey($email), 1, now()->addMinutes(self::RESET_COOLDOWN_MINUTES))) {
+            return $genericResponse;
+        }
+
+        // The expiry is part of the token and of the hash, so it needs no cache entry
+        // and cannot be altered: a changed timestamp hashes to something else.
+        $password_reset_token = now()->addMinutes(self::RESET_TTL_MINUTES)->timestamp . '-' . bin2hex(random_bytes(16));
         // Hashed at rest, so reading this column (a database dump, the CMS) yields nothing usable.
         $user->password_reset_token = hash('sha256', $password_reset_token);
         $user->save();
-
-        // Reset links were valid forever — a token from a year-old email still
-        // worked. Recorded here and enforced in resetPasswordSendEmail().
-        Cache::put(self::resetIssuedAtKey($email), now(), now()->addMinutes(self::RESET_TTL_MINUTES));
 
         // LocaleMiddleware has already set the locale from the {locale} segment.
         // This used an undefined $requestedLocale, which threw before Mail::send for
@@ -278,8 +306,8 @@ class RegisteredUserController extends Controller
         $reset_password_url = config('app.front_url') . '/' . app()->getLocale() . '/reset-password/' . $email . '/' . $password_reset_token;
 
         try {
-            Mail::send('emails.forgot-password', compact('reset_password_url', 'attributes'), function ($message) use ($email) {
-                $message->to($email)->subject(__('emails.subjects.reset_password'));
+            Mail::send('emails.forgot-password', compact('reset_password_url', 'attributes'), function ($message) use ($user) {
+                $message->to($user->email)->subject(__('emails.subjects.reset_password'));
             });
         } catch (\Exception $e) {
             // Logged, not surfaced: a 500 here only for real addresses would leak
@@ -288,11 +316,6 @@ class RegisteredUserController extends Controller
         }
 
         return $genericResponse;
-    }
-
-    private static function resetIssuedAtKey(string $email): string
-    {
-        return 'password-reset:issued:' . sha1($email);
     }
 
     // public function resetPassword($email, $token)
@@ -313,8 +336,7 @@ class RegisteredUserController extends Controller
             'password' => ['required', 'confirmed', \Illuminate\Validation\Rules\Password::min(8)->letters()->numbers()],
         ]);
 
-        $email = strtolower(trim($attributes['email']));
-        $user = User::where('email', $email)->first();
+        $user = User::findByExactEmail($attributes['email']);
 
         // The reset token from the emailed link must match — otherwise anyone
         // knowing an email address could take over the account.
@@ -322,10 +344,9 @@ class RegisteredUserController extends Controller
             && $user->password_reset_token
             && hash_equals($user->password_reset_token, hash('sha256', (string) $attributes['token']));
 
-        // Expiry. Tokens issued before this mechanism existed have no marker and are
-        // still accepted once, so nobody mid-reset is stranded by the deploy.
-        $issuedAt = Cache::get(self::resetIssuedAtKey($email));
-        $notExpired = $issuedAt === null || $issuedAt->addMinutes(self::RESET_TTL_MINUTES)->isFuture();
+        // A token with no embedded expiry predates this format and reads as 0: refused,
+        // and its owner requests a new link.
+        $notExpired = (int) strstr((string) $attributes['token'], '-', true) > now()->timestamp;
 
         if (!$tokenMatches || !$notExpired) {
             return response()->json([
@@ -340,7 +361,7 @@ class RegisteredUserController extends Controller
             'password_reset_token' => null,
         ]);
 
-        Cache::forget(self::resetIssuedAtKey($email));
+        $apiAccessRevoked = CredentialRevocation::afterPasswordChange($user);
 
         // A reset is the response to "someone else may have my account". Evict every
         // existing session before issuing the new one.
@@ -349,8 +370,8 @@ class RegisteredUserController extends Controller
         $token = $user->createToken('api-token')->plainTextToken;
 
         try {
-            Mail::send('emails.password-changed', compact('user'), function ($message) use ($email) {
-                $message->to($email)->subject(__('emails.subjects.password_changed'));
+            Mail::send('emails.password-changed', compact('user', 'apiAccessRevoked'), function ($message) use ($user) {
+                $message->to($user->email)->subject(__('emails.subjects.password_changed'));
             });
         } catch (\Exception $e) {
             // The password IS already changed; a failed courtesy email must not

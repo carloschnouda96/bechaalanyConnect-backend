@@ -71,17 +71,28 @@ class RouteServiceProvider extends ServiceProvider
             return Limit::perMinute(30)->by('reseller-write:' . hash('sha256', (string) $request->bearerToken()));
         });
 
-        // Credential and account-recovery endpoints. Keyed by IP *and* by the
-        // targeted email, so one attacker cannot spread a password-spray across
-        // many accounts from one IP, and a botnet cannot converge on one account
-        // from many IPs. Also caps outbound mail: /register, /forgot-password and
-        // /resend-verification-code each send an email per request.
+        // Credential endpoints. The IP bucket is the real limit. The email ceiling is
+        // only a backstop against a botnet converging on one account: at 5 a minute it
+        // let any anonymous caller lock an owner out of login and recovery with 5
+        // requests, so it is deliberately high enough to need many IPs.
         RateLimiter::for('auth', function (Request $request) {
             $email = strtolower(trim((string) $request->input('email')));
 
             return array_filter([
                 Limit::perMinute(5)->by('auth-ip:' . ClientIp::of($request)),
-                $email !== '' ? Limit::perMinute(5)->by('auth-email:' . $email) : null,
+                $email !== '' ? Limit::perMinute(30)->by('auth-email:' . sha1($email)) : null,
+            ]);
+        });
+
+        // Routes that send an email per request: /register, /forgot-password and
+        // /resend-verification-code. A separate name, so they cannot spend the login
+        // allowance, and a low email cap, because this one bounds mail to one inbox.
+        RateLimiter::for('auth-mail', function (Request $request) {
+            $email = strtolower(trim((string) $request->input('email')));
+
+            return array_filter([
+                Limit::perMinute(5)->by('auth-mail-ip:' . ClientIp::of($request)),
+                $email !== '' ? Limit::perMinute(3)->by('auth-mail-email:' . sha1($email)) : null,
             ]);
         });
 
@@ -117,7 +128,10 @@ class RouteServiceProvider extends ServiceProvider
 
             return array_filter([
                 Limit::perMinute(5)->by('cms-ip:' . $request->ip()),
-                $email !== '' ? Limit::perMinutes(15, 10)->by('cms-email:' . $email) : null,
+                // Per IP, so guessing from one address cannot lock the admin out from
+                // another. The email-only ceiling stays as a backstop against many IPs.
+                $email !== '' ? Limit::perMinutes(15, 10)->by('cms-email-ip:' . sha1($email) . '|' . $request->ip()) : null,
+                $email !== '' ? Limit::perMinutes(15, 50)->by('cms-email:' . sha1($email)) : null,
             ]);
         });
 

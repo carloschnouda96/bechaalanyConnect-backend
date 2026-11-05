@@ -44,6 +44,8 @@ class Kernel extends HttpKernel
             // Before routing reaches the vendor CMS list action, which would otherwise
             // execute any query-builder method named in ?custom_validation.
             \App\Http\Middleware\SanitizeCmsListFilters::class,
+            // Ends a CMS session once its admin's password has changed.
+            \App\Http\Middleware\BindAdminSessionToPassword::class,
         ],
 
         'api' => [

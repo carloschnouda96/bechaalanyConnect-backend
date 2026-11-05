@@ -45,6 +45,10 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
     Route::get('/kyc-queue/{id}/document/{slot}', 'App\Http\Controllers\Cms\KycController@document')->whereNumber('id');
     Route::put('/kyc-queue/{id}', 'App\Http\Controllers\Cms\KycController@update')->whereNumber('id');
 
+    // The vendor Supplier imports list plus a Source filter. Same URI as the generated
+    // vendor route, which this replaces; the page stays custom_page = 0.
+    Route::get('/supplier-categories', 'App\Http\Controllers\Cms\SupplierImportsController@index');
+
     // Supplier balances, plus a retry for orders that were charged and approved but
     // never reached the supplier. PUT so AdminMiddleware maps it to `edit` rights.
     Route::get('/supplier-health', 'App\Http\Controllers\Cms\SupplierHealthController@index');

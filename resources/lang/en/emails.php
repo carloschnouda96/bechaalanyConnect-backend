@@ -53,6 +53,7 @@ return [
     'password_changed' => [
         'greeting' => 'Dear :name,',
         'body' => 'Your password has been changed successfully.',
+        'api_access_revoked' => 'For your security, your API keys and order webhook were also removed. If you use the reseller API, create a new key and set the webhook again from your account.',
         'closing' => 'If you did not make this change, please contact support.',
     ],
     'order_request' => [

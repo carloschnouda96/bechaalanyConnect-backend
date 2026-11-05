@@ -2,7 +2,8 @@
     Supplier imports (supplier_categories) — the vendor list template
     (cms::pages/cms-page/index) plus a "Sync now" toolbar, so ticking Import on a
     category can be followed by an immediate import instead of waiting for the hourly
-    cron. Keep the rest identical to the vendor copy.
+    cron, and a Source dropdown served by Cms\SupplierImportsController (which supplies
+    $sources and $activeSource). Keep the rest identical to the vendor copy.
 --}}
 @php
 	$filters = [];
@@ -92,6 +93,47 @@
 								</select>
 								entries
 							</label>
+						</form>
+					</div>
+				</div>
+				<div class="col-md-auto">
+					{{-- .server-showing-number-wrapper: main.js submits this form when the select changes. No `page`, so a new supplier starts on page 1. --}}
+					{{-- select2 sizes its list to the closed box under width:auto, which wraps the labels and clips the last one at its 200px default. --}}
+					<style>#select2-source-filter-results { max-height: 320px; }</style>
+					<div class="server-showing-number-wrapper mr-md-3">
+						<form>
+							@foreach (['per_page', 'custom_search', 'sort_by', 'sort_by_direction'] as $keep)
+								@if (is_string(request($keep)) && request($keep) !== '')
+									<input type="hidden" name="{{ $keep }}" value="{{ request($keep) }}">
+								@endif
+							@endforeach
+							@if (request('custom_validation'))
+								@foreach(request('custom_validation') as $i => $validation)
+									@if (isset($validation['value'][1]) && $validation['value'][1])
+									<input type="hidden" name="custom_validation[{{ $i }}][constraint]" value="{{ $validation['constraint'] }}">
+									<input type="hidden" name="custom_validation[{{ $i }}][value][0]" value="{{ $validation['value'][0] }}">
+										@foreach($validation['value'][1] as $value)
+										<input type="hidden" name="custom_validation[{{ $i }}][value][1][]" value="{{ $value }}">
+										@endforeach
+									@endif
+								@endforeach
+							@endif
+							<label>
+								Source
+								<select name="source" id="source-filter" class="select2-width-auto px-4" data-dropdown-auto-width="true" data-minimum-results-for-search="Infinity">
+									<option value="">All sources</option>
+									@foreach ($sources as $sourceKey => $sourceCount)
+										<option value="{{ $sourceKey }}" {{ $activeSource === (string) $sourceKey ? 'selected' : '' }}>{{ $sourceKey }} ({{ $sourceCount }})</option>
+									@endforeach
+								</select>
+							</label>
+							@php
+								$hasPopupFilter = collect((array) request('custom_validation'))->contains(fn ($validation) => !empty($validation['value'][1]));
+								$clearFilterQuery = http_build_query(array_filter(request()->only(['per_page', 'sort_by', 'sort_by_direction']), 'is_string') + ['source' => '']);
+							@endphp
+							@if ($activeSource !== null || $hasPopupFilter || request('custom_search'))
+								<a href="{{ url(config('hellotree.cms_route_prefix') . '/' . $page['route']) . '?' . $clearFilterQuery }}" class="btn btn-secondary btn-sm ml-2">Clear filter</a>
+							@endif
 						</form>
 					</div>
 				</div>
@@ -328,7 +370,8 @@
 								])
 							@endforeach
 							<div class="text-right">
-								<a href="{{ url(config('hellotree.cms_route_prefix') . '/' . $page['route']) }}" class="btn btn-secondary btn-sm">Clear</a>
+								{{-- ?source= also forgets the supplier remembered in the session. --}}
+								<a href="{{ url(config('hellotree.cms_route_prefix') . '/' . $page['route']) }}?source=" class="btn btn-secondary btn-sm">Clear</a>
 								<button class="btn btn-primary btn-sm">Submit</button>
 							</div>
 						</form>

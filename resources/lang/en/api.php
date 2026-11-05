@@ -72,6 +72,7 @@ return [
         'registered' => 'Registration successful. Please verify your email.',
         'registered_no_email' => 'Your account was created, but the verification email could not be sent. Please use "resend code".',
         'too_many_codes' => 'Too many incorrect codes. Request a new one.',
+        'google_email_conflict' => 'This Google account cannot be used here because its email address conflicts with an existing account.',
         'verification_failed' => 'Email verification failed. Check the code and try again.',
         'email_verified' => 'Email verified successfully.',
         'code_resent' => 'If that email needs verification, a new code is on its way.',

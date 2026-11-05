@@ -89,7 +89,7 @@ class HiddenCredentialSearchTest extends TestCase
 
     public function test_a_stored_reset_token_cannot_be_used_as_the_token(): void
     {
-        $plain = bin2hex(random_bytes(16));
+        $plain = now()->addHour()->timestamp . '-' . bin2hex(random_bytes(16));
         $stored = hash('sha256', $plain);
         $victim = $this->victim(['password_reset_token' => $stored]);
 

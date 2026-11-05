@@ -2,9 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\User;
+use App\Services\Auth\CredentialRevocation;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\ValidationException;
 
 class SessionController extends Controller
@@ -20,7 +24,10 @@ class SessionController extends Controller
             'email' => ['required', 'email'],
             'password' => ['required'],
         ]);
-        if (! Auth::attempt($attributes)) {
+        // Exact match first: the column's collation would otherwise accept an accented
+        // look-alike of the address, and each look-alike gets its own rate-limit bucket.
+        $account = User::findByExactEmail($attributes['email']);
+        if (! $account || ! Auth::attempt(['email' => $account->email, 'password' => $attributes['password']])) {
             return response()->json(['message' => __('auth.failed')], 401);
         }
         /** @var \App\Models\User $user */
@@ -121,6 +128,17 @@ class SessionController extends Controller
         $user->tokens()
             ->when($current, fn ($q) => $q->where('id', '!=', $current->id))
             ->delete();
+
+        $apiAccessRevoked = CredentialRevocation::afterPasswordChange($user);
+
+        try {
+            Mail::send('emails.password-changed', compact('user', 'apiAccessRevoked'), function ($message) use ($user) {
+                $message->to($user->email)->subject(__('emails.subjects.password_changed'));
+            });
+        } catch (\Exception $e) {
+            // The password IS already changed; a failed notice must not report an error.
+            Log::error('Password-changed notification failed', ['exception' => $e]);
+        }
 
         return response()->json(['message' => __('auth.password_changed')], 200);
     }

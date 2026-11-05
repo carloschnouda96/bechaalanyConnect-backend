@@ -56,13 +56,13 @@ Route::post('/auth/google-sync', [SocialiteController::class, 'syncUser'])
 
 //Register Routes
 Route::post('/register', [RegisteredUserController::class, 'store'])
-    ->middleware(['throttle:auth', 'locale.header']);
+    ->middleware(['throttle:auth-mail', 'locale.header']);
 
 //Email Verification Routes
 Route::post('/verify-email', [RegisteredUserController::class, 'verifyEmail'])
     ->middleware(['throttle:auth', 'locale.header']);
 Route::post('/resend-verification-code', [RegisteredUserController::class, 'verifyEmailSendNewCode'])
-    ->middleware(['throttle:auth', 'locale.header']);
+    ->middleware(['throttle:auth-mail', 'locale.header']);
 
 //Contact Form Routes
 Route::post('/contact-form-submit', [ContactController::class, 'submit'])
@@ -282,7 +282,7 @@ Route::middleware('locale')->prefix('{locale}')->group(function () {
 
     //Password Reset Routes
     Route::post('/forgot-password', [RegisteredUserController::class, 'forgotPasswordSendEmail'])
-        ->middleware('throttle:auth');
+        ->middleware('throttle:auth-mail');
     Route::post('/reset-password', [RegisteredUserController::class, 'resetPasswordSendEmail'])
         ->middleware('throttle:auth');
 });
