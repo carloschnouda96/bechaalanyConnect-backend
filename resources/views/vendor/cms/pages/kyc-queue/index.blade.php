@@ -31,7 +31,7 @@
                 'all' => 'All',
             ] as $value => $label)
                 <a href="{{ url($prefix . '/kyc-queue') }}?status={{ $value }}"
-                   class="btn btn-sm mr-1 {{ (string) $status === $value ? 'btn-primary' : 'btn-outline-secondary' }}">
+                   class="btn btn-sm mr-1 {{ (string) $status === (string) $value ? 'btn-primary' : 'btn-outline-secondary' }}">
                     {{ $label }}
                     @if ($value !== 'all')
                         <span class="badge badge-light ml-1">{{ $counts[(int) $value] ?? 0 }}</span>

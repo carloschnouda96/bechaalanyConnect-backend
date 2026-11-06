@@ -1,0 +1,409 @@
+/*
+ * Bechaalany Connect theme for the vendor CMS. Loaded last (config/hellotree.php) so it
+ * wins over vendor main.min.css, whose rules are written as `html body #content ...`,
+ * which is why selectors here repeat that prefix. Values come from the storefront's
+ * tailwind.config.js.
+ *
+ * Contrast rule: white on --bc-red is 4.2:1, under the AA minimum. --bc-red is for
+ * accents only. Anything carrying text, a button fill or red text on white, uses
+ * --bc-red-strong (4.8:1).
+ */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+
+:root {
+    --bc-red: #e73828;
+    --bc-red-strong: #d63224;
+    --bc-red-deep: #b42318;
+    --bc-red-soft: #fdecea;
+    --bc-black: #070707;
+    --bc-ink: #1f1f1f;
+    --bc-text: #333333;
+    --bc-muted: #666666;
+    --bc-line: #e0e0e0;
+    --bc-line-soft: #efefef;
+    --bc-page: #f7f7f7;
+    --bc-white: #ffffff;
+    --bc-green: #15803d;
+    --bc-green-soft: #e7f6ec;
+    --bc-amber: #b45309;
+    --bc-amber-soft: #fef3c7;
+    --bc-blue: #075985;
+    --bc-blue-soft: #e0f2fe;
+    --bc-radius: 12px;
+    --bc-radius-sm: 8px;
+    --bc-shadow: 0 1px 2px rgba(7, 7, 7, .04), 0 4px 16px rgba(7, 7, 7, .04);
+}
+
+/* ---------- Base ---------- */
+
+html body {
+    color: var(--bc-text);
+    font-family: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    background-color: var(--bc-page);
+    accent-color: var(--bc-red);
+}
+
+html body h1, html body h2, html body h3, html body h4, html body h5, html body h6 {
+    color: var(--bc-ink);
+    font-weight: 600 !important;
+}
+
+html ::selection { color: #fff; background: var(--bc-red-strong); }
+html ::-moz-selection { color: #fff; background: var(--bc-red-strong); }
+html ::-webkit-scrollbar { width: 8px; height: 8px; }
+html ::-webkit-scrollbar-track { background: transparent; }
+html ::-webkit-scrollbar-thumb { background: #cfcfcf; border-radius: 8px; }
+
+/* The vendor sets `* { outline: none }`, which leaves keyboard users with no focus cue. */
+html body *:focus-visible { outline: 2px solid var(--bc-red); outline-offset: 2px; }
+html body .form-control:focus-visible { outline: none; }
+
+html body #loader img { max-width: 72px; animation: bc-pulse 1.4s ease-in-out infinite; }
+@keyframes bc-pulse { 50% { opacity: .45; } }
+
+html body .text-muted { color: var(--bc-muted) !important; }
+html body .text-danger { color: var(--bc-red-strong) !important; }
+html body .text-success { color: var(--bc-green) !important; }
+html body .text-warning { color: var(--bc-amber) !important; }
+html body .text-info { color: var(--bc-blue) !important; }
+html body .text-primary { color: var(--bc-red-strong) !important; }
+html body .border-danger { border-color: var(--bc-red) !important; }
+
+/* The vendor forces every link to inherit its colour, so links inside text and table
+   cells read as plain text. These are the ones that should look clickable. */
+html body #content td a:not(.btn):not(.page-link),
+html body a.bc-link {
+    color: var(--bc-red-strong) !important;
+    font-weight: 500;
+}
+html body #content td a:not(.btn):not(.page-link):hover,
+html body a.bc-link:hover { color: var(--bc-red-deep) !important; text-decoration: underline !important; }
+
+/* ---------- Sidebar ---------- */
+
+html body nav.main {
+    color: rgba(255, 255, 255, .72);
+    background-color: var(--bc-black);
+    box-shadow: none;
+    font-size: .875rem;
+    padding-top: 0 !important;
+}
+html body nav.main::-webkit-scrollbar-track { background: transparent; }
+html body nav.main::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, .22); }
+
+html body nav.main .header { height: auto; padding-bottom: 1.5rem; }
+html body nav.main .bc-brand {
+    display: block;
+    padding: 1.5rem 1rem 1.25rem;
+    border-bottom: 1px solid rgba(255, 255, 255, .08);
+}
+html body nav.main .bc-brand img { display: block; width: auto; height: 76px; margin: 0 auto; padding: 0 !important; }
+
+html body nav.main ul { margin-top: .75rem !important; margin-bottom: 0 !important; }
+html body nav.main a { color: rgba(255, 255, 255, .72) !important; cursor: pointer; transition: color .15s, background-color .15s; }
+html body nav.main ul li a { padding: .625rem 1rem !important; }
+html body nav.main ul li a .fa { color: rgba(255, 255, 255, .5); font-size: 16px; width: 26px; transition: color .15s; }
+html body nav.main ul li > a:hover { color: #fff !important; background-color: rgba(255, 255, 255, .07); }
+html body nav.main ul li > a:hover .fa { color: #fff; }
+
+/* A single bar on the current page, never one stretching over a whole open section. */
+html body nav.main ul li:before { background: var(--bc-red); width: 3px; transition: height .15s; }
+html body nav.main ul li:hover:before { height: 0; }
+html body nav.main ul li.active:before { height: 100%; }
+html body nav.main ul li.active > a { color: #fff !important; background-color: rgba(255, 255, 255, .09); font-weight: 600; }
+html body nav.main ul li.active > a .fa { color: var(--bc-red); }
+
+html body nav.main ul li.menu-dropdown-wrapper:before,
+html body nav.main ul li.menu-dropdown-wrapper:hover:before { height: 0; }
+html body nav.main ul li.menu-dropdown-wrapper.active > a { background-color: transparent; }
+html body nav.main ul li a .fa-caret-down {
+    /* Positioned against the <li>, which includes the open dropdown, so not 50%. */
+    top: 13px;
+    right: 12px;
+    width: auto;
+    font-size: 13px;
+    transition: transform .15s;
+}
+html body nav.main ul li.open > a .fa-caret-down { transform: rotate(180deg); }
+
+html body nav.main .menu-dropdown { padding-left: 2rem !important; font-size: .8125rem; }
+html body nav.main .menu-dropdown a {
+    position: relative;
+    padding: .4rem .75rem !important;
+    border-left: 1px solid rgba(255, 255, 255, .14);
+}
+html body nav.main .menu-dropdown a:hover { color: #fff !important; background-color: rgba(255, 255, 255, .07); }
+html body nav.main .menu-dropdown a.active {
+    color: #fff !important;
+    font-weight: 600;
+    background-color: rgba(255, 255, 255, .09);
+    border-left: 3px solid var(--bc-red);
+    padding-left: calc(.75rem - 2px) !important;
+}
+
+/* ---------- Header ---------- */
+
+html body #content .header-bg { display: none; }
+html body #content header { padding-top: 1.5rem !important; padding-bottom: 1.25rem !important; color: var(--bc-ink); }
+html body #content header .bc-header-actions { display: flex; align-items: center; justify-content: flex-end; gap: 1rem; }
+
+html body .breadcrumbs {
+    color: var(--bc-muted);
+    font-size: 1.25rem;
+    font-weight: 600 !important;
+    text-transform: none !important;
+}
+html body .breadcrumbs li:last-child { color: var(--bc-ink); }
+html body .breadcrumbs li a:hover { color: var(--bc-red-strong) !important; }
+html body .breadcrumbs li:not(:last-child) { padding-right: 18px; margin-right: 8px; }
+html body .breadcrumbs li:not(:last-child):after {
+    content: "/";
+    width: auto;
+    height: auto;
+    border-radius: 0;
+    background: none;
+    color: #b5b5b5;
+    font-weight: 400;
+}
+
+html body #burger label { background-color: var(--bc-ink); }
+
+html body #content header .user-info img { display: inline-block; width: 38px; height: 38px; }
+html body .user-info .bc-user-name { font-size: .875rem; font-weight: 500 !important; }
+html body .user-info ul { min-width: 170px; overflow: hidden; border: 1px solid var(--bc-line-soft); border-radius: var(--bc-radius-sm); box-shadow: 0 8px 24px rgba(7, 7, 7, .12); font-size: .85rem; z-index: 20; }
+html body .user-info ul li { border: none; padding: 0 !important; }
+html body .user-info ul li a { display: block; padding: .6rem 1rem; }
+html body .user-info ul li a:hover { background-color: var(--bc-page); color: var(--bc-red-strong) !important; }
+
+/* ---------- Cards and tables ---------- */
+
+html body .card { border: 1px solid var(--bc-line-soft); border-radius: var(--bc-radius); box-shadow: var(--bc-shadow); margin-bottom: 32px; }
+
+html body #content table { color: var(--bc-text); }
+html body #content table thead { background-color: #fafafa; color: var(--bc-muted); font-size: .7rem; }
+html body #content table thead th { letter-spacing: .04em; font-weight: 600; border-color: var(--bc-line-soft); }
+html body #content table thead th .sort-arrows::before { border-bottom-color: #c9c9c9; }
+html body #content table thead th .sort-arrows::after { border-top-color: #c9c9c9; }
+html body #content table thead th .sort-arrows.asc::before { border-bottom-color: var(--bc-red); }
+html body #content table thead th .sort-arrows.desc::after { border-top-color: var(--bc-red); }
+html body #content table tbody tr td { height: 56px; border-top: 1px solid var(--bc-line-soft); vertical-align: middle; }
+html body #content table tbody tr:hover td { background-color: #fbfbfb; }
+
+html body #content .datatable-wrapper .datatable thead th.sorting_asc:before { border-bottom-color: var(--bc-red); }
+html body #content .datatable-wrapper .datatable thead th.sorting_desc:after { border-top-color: var(--bc-red); }
+
+html body #content .dataTables_length,
+html body #content .dataTables_info,
+html body #content .dataTables_filter,
+html body #content .dataTables_paginate,
+html body #content .server-search-wrapper,
+html body #content .server-showing-number-wrapper,
+html body #content .server-pagination-numbers { font-size: .8rem; }
+html body #content .dataTables_filter input,
+html body #content .server-search-wrapper input { border-color: var(--bc-line); border-radius: var(--bc-radius-sm); padding: 4px 12px; }
+
+html body #content .dataTables_paginate .paginate_button { border-color: var(--bc-line); }
+html body #content .dataTables_paginate .paginate_button.previous:before { border-right-color: var(--bc-red); }
+html body #content .dataTables_paginate .paginate_button.next:before { border-left-color: var(--bc-red); }
+html body #content .dataTables_paginate .paginate_button.current,
+html body #content .dataTables_paginate .paginate_button.current:hover {
+    color: #fff !important;
+    background: var(--bc-red-strong);
+    border-color: var(--bc-red-strong);
+}
+html body #content ul.pagination .page-link { color: var(--bc-text) !important; border-color: var(--bc-line); }
+html body #content ul.pagination .page-link:hover { background-color: var(--bc-page); }
+html body #content ul.pagination .page-item.active .page-link {
+    color: #fff !important;
+    background: var(--bc-red-strong);
+    border-color: var(--bc-red-strong);
+}
+
+/* ---------- Buttons ---------- */
+
+html body .btn { border-radius: var(--bc-radius-sm); box-shadow: none; font-weight: 500; transition: background-color .15s, border-color .15s, color .15s, transform .15s; }
+html body .btn:hover, html body .btn:focus { box-shadow: none !important; }
+
+html body .btn.btn-primary,
+html body a.btn.btn-primary,
+html body .btn.btn-primary:not(:disabled):not(.disabled):active {
+    color: #fff !important;
+    background-color: var(--bc-red-strong) !important;
+    border-color: var(--bc-red-strong) !important;
+}
+html body .btn.btn-primary:hover,
+html body .btn.btn-primary:focus,
+html body a.btn.btn-primary:hover {
+    color: #fff !important;
+    background-color: var(--bc-red-deep) !important;
+    border-color: var(--bc-red-deep) !important;
+}
+
+html body .btn.btn-secondary,
+html body a.btn.btn-secondary,
+html body .btn.btn-outline-secondary,
+html body a.btn.btn-outline-secondary {
+    color: var(--bc-ink) !important;
+    background-color: var(--bc-white);
+    border-color: #c9c9c9;
+}
+html body .btn.btn-secondary:hover,
+html body .btn.btn-secondary:focus,
+html body .btn.btn-secondary:not(:disabled):not(.disabled):active,
+html body .btn.btn-outline-secondary:hover,
+html body .btn.btn-outline-secondary:focus,
+html body .btn.btn-outline-secondary:not(:disabled):not(.disabled):active {
+    color: var(--bc-ink) !important;
+    background-color: #f1f1f1;
+    border-color: #a8a8a8;
+}
+
+/* Delete and Reject: recognisable, but never competing with the main red action. */
+html body .btn.btn-danger,
+html body a.btn.btn-danger,
+html body .btn.btn-outline-danger,
+html body a.btn.btn-outline-danger {
+    color: var(--bc-red-strong) !important;
+    background-color: var(--bc-white);
+    border-color: var(--bc-red-strong);
+}
+html body .btn.btn-danger:hover,
+html body .btn.btn-danger:focus,
+html body .btn.btn-danger:not(:disabled):not(.disabled):active,
+html body .btn.btn-outline-danger:hover,
+html body .btn.btn-outline-danger:focus,
+html body .btn.btn-outline-danger:not(:disabled):not(.disabled):active {
+    color: #fff !important;
+    background-color: var(--bc-red-strong);
+    border-color: var(--bc-red-strong);
+}
+
+/* Sync, Restore, Assign: safe secondary actions, so never the red outline Delete wears. */
+html body .btn.btn-outline-primary,
+html body a.btn.btn-outline-primary {
+    color: var(--bc-ink) !important;
+    background-color: var(--bc-white);
+    border-color: var(--bc-ink);
+}
+html body .btn.btn-outline-primary:hover,
+html body .btn.btn-outline-primary:focus,
+html body .btn.btn-outline-primary:not(:disabled):not(.disabled):active {
+    color: #fff !important;
+    background-color: var(--bc-ink);
+    border-color: var(--bc-ink);
+}
+
+html body .btn.btn-link, html body a.btn.btn-link { color: var(--bc-red-strong) !important; }
+
+html body .btn.btn-success, html body a.btn.btn-success { color: #fff !important; background-color: var(--bc-green); border-color: var(--bc-green); }
+html body .btn.btn-success:hover, html body .btn.btn-success:focus { color: #fff !important; background-color: #116632; border-color: #116632; }
+
+/* ---------- Forms ---------- */
+
+html body .form-control,
+html body .file-wrapper,
+html body .multiple-images-wrapper .images-preview { border-color: var(--bc-line); border-radius: var(--bc-radius-sm); }
+html body .form-control:focus { color: var(--bc-ink); border-color: var(--bc-red); box-shadow: 0 0 0 3px rgba(231, 56, 40, .15); }
+html body .file-wrapper:focus-within { border-color: var(--bc-red); box-shadow: 0 0 0 3px rgba(231, 56, 40, .15); }
+html body #content .form-group label { color: var(--bc-ink); font-size: .85rem; font-weight: 500; }
+
+html body .checkbox-wrapper div { width: 18px; height: 18px; border: 1.5px solid #a8a8a8; border-radius: 5px; background-color: var(--bc-white); transition: background-color .15s, border-color .15s; }
+html body .checkbox-wrapper input:checked + div {
+    border-color: var(--bc-red-strong);
+    background-color: var(--bc-red-strong);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Cpath fill='none' stroke='%23fff' stroke-width='2.2' stroke-linecap='round' stroke-linejoin='round' d='M3.5 8.5l3 3 6-7'/%3E%3C/svg%3E");
+    background-position: center;
+    background-repeat: no-repeat;
+}
+html body .checkbox-wrapper input:focus-visible + div { outline: 2px solid var(--bc-red); outline-offset: 2px; }
+
+html body .select2-selection { border-color: var(--bc-line) !important; border-radius: var(--bc-radius-sm) !important; }
+html body .select2-container--focus .select2-selection,
+html body .select2-container--open .select2-selection { border-color: var(--bc-red) !important; box-shadow: 0 0 0 3px rgba(231, 56, 40, .15); }
+html body .select2-dropdown { border-color: var(--bc-line); border-radius: var(--bc-radius-sm); overflow: hidden; box-shadow: 0 8px 24px rgba(7, 7, 7, .12); }
+html body .select2-container--default .select2-results__option[aria-selected=true] { background-color: var(--bc-red-soft); color: var(--bc-red-deep); }
+html body .select2-container--default .select2-results__option--highlighted[aria-selected] { background-color: var(--bc-red-strong); color: #fff; }
+html body .select2-container--default .select2-selection--multiple .select2-selection__choice { color: var(--bc-ink); background-color: #f1f1f1; border-color: var(--bc-line); border-radius: 6px; }
+
+html body .ui-datepicker { border-radius: var(--bc-radius-sm); overflow: hidden; box-shadow: 0 8px 24px rgba(7, 7, 7, .16); }
+html body .ui-datepicker .ui-datepicker-header { color: #fff; background: var(--bc-black); }
+html body .ui-datepicker .ui-datepicker-header select { color: #fff; }
+html body .ui-datepicker .ui-datepicker-header select option { color: var(--bc-ink); }
+html body .ui-datepicker table td:not(.ui-state-disabled):hover { background-color: var(--bc-red-soft); }
+html body .ui-datepicker table td.ui-datepicker-current-day { color: #fff; background-color: var(--bc-red-strong); }
+html body .timepicker .buttons-wrapper.upper span { border-bottom-color: var(--bc-red); }
+html body .timepicker .buttons-wrapper.lower span { border-top-color: var(--bc-red); }
+
+html body #content .form-field-description-wrapper .form-field-description { color: #fff; background: var(--bc-black); border-radius: 6px; font-size: .8rem; }
+
+html body .form-buttons-wrapper-fixed .bg-white { box-shadow: 0 4px 16px rgba(7, 7, 7, .1); }
+
+/* ---------- Status colours ---------- */
+
+html body .badge { padding: .35em .65em; border-radius: 6px; font-weight: 600; }
+html body .badge-success { color: var(--bc-green); background-color: var(--bc-green-soft); }
+html body .badge-warning { color: #92400e; background-color: var(--bc-amber-soft); }
+html body .badge-danger { color: var(--bc-red-deep); background-color: var(--bc-red-soft); }
+html body .badge-info { color: var(--bc-blue); background-color: var(--bc-blue-soft); }
+html body .badge-secondary { color: #444; background-color: #efefef; }
+html body .badge-light { color: #444; background-color: #f7f7f7; }
+/* Not red: next to a Rejected badge, a red primary badge would read as a failure. */
+html body .badge-primary { color: #fff; background-color: var(--bc-ink); }
+
+html body .alert { border-radius: var(--bc-radius-sm); }
+html body .alert-success { color: var(--bc-green); background-color: var(--bc-green-soft); border-color: #bfe6cc; }
+html body .alert-warning { color: #92400e; background-color: var(--bc-amber-soft); border-color: #fde68a; }
+html body .alert-danger { color: var(--bc-red-deep); background-color: var(--bc-red-soft); border-color: #f9c9c3; }
+html body .alert-info { color: var(--bc-blue); background-color: var(--bc-blue-soft); border-color: #bae6fd; }
+
+html body .toast { background-color: var(--bc-green); border: none; border-radius: var(--bc-radius-sm); box-shadow: 0 8px 24px rgba(7, 7, 7, .2); font-weight: 500; }
+html body .toast.error, html body .toast.bc-toast-error { background-color: var(--bc-red-deep); }
+
+/* ---------- Footer ---------- */
+
+html body footer { color: var(--bc-muted); font-size: .8rem; }
+
+/* ---------- Login ---------- */
+
+html body #login {
+    display: flex !important;
+    align-items: center;
+    justify-content: center;
+    min-height: 100%;
+    padding: 2rem 1rem 5rem !important;
+    background-color: var(--bc-black);
+    background-image: radial-gradient(circle at 50% 0, #2a2a2a 0, var(--bc-black) 60%);
+}
+html body #login .card { width: 100%; max-width: 400px; margin: 0; padding: 2.25rem 2rem; border: none; box-shadow: 0 16px 48px rgba(0, 0, 0, .4); }
+html body #login .card img { display: block; width: 132px; max-width: 100%; margin: 0 auto 1.5rem; }
+html body #login h1 { margin-bottom: .25rem; font-size: 1.25rem; text-align: center; }
+html body #login .bc-login-sub { margin-bottom: 1.5rem; color: var(--bc-muted); font-size: .875rem; text-align: center; }
+html body #login label { color: var(--bc-ink); font-size: .85rem; font-weight: 500; }
+html body #login .btn { width: 100%; padding-top: .6rem; padding-bottom: .6rem; }
+html body #login-footer-wrapper footer { color: rgba(255, 255, 255, .6); }
+
+/* ---------- Dashboard ---------- */
+
+/* Bootstrap's -15px row margin is wider than the mx-2 wrapper, which scrolled the page sideways. */
+html body .bc-home .row { margin-right: -8px; margin-left: -8px; }
+html body .bc-home .row > [class*="col-"] { padding-right: 8px; padding-left: 8px; }
+html body .bc-home .card { margin-bottom: 0; }
+html body .bc-home a.text-decoration-none .card { transition: border-color .15s, transform .15s; }
+html body .bc-home a.text-decoration-none:hover .card { border-color: var(--bc-red); transform: translateY(-2px); }
+html body .bc-section-title { margin: 1.5rem 0 .75rem; font-size: 1rem; }
+html body .bc-home .bc-section-title:first-child { margin-top: .25rem; }
+html body .bc-stat { padding: 1.25rem; }
+html body .bc-stat-head { display: flex; align-items: center; justify-content: space-between; color: var(--bc-muted); font-size: .85rem; font-weight: 500; }
+html body .bc-stat-eyebrow { color: var(--bc-muted); font-size: .75rem; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; }
+html body .bc-stat-icon { display: flex; align-items: center; justify-content: center; width: 34px; height: 34px; color: var(--bc-muted); background-color: #f1f1f1; border-radius: var(--bc-radius-sm); }
+html body .bc-stat-icon.bc-attention { color: var(--bc-amber); background-color: var(--bc-amber-soft); }
+html body .bc-stat-value { color: var(--bc-ink); font-size: 1.75rem; font-weight: 700; line-height: 1.2; font-variant-numeric: tabular-nums; }
+html body .bc-stat-value.bc-small { font-size: 1.375rem; }
+html body .bc-stat-note { color: var(--bc-muted); font-size: .85rem; }
+
+/* ---------- Motion ---------- */
+
+@media (prefers-reduced-motion: reduce) {
+    html body #loader img { animation: none; }
+    html body .btn, html body nav.main a, html body .bc-home .card { transition: none; }
+}

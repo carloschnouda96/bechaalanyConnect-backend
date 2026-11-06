@@ -26,13 +26,19 @@
     $money = fn ($v) => '$' . number_format((float) $v, 2);
 @endphp
 
+@section('breadcrumb')
+    <ul class="breadcrumbs list-inline m-0">
+        <li>Dashboard</li>
+    </ul>
+@endsection
+
 @section('dashboard-content')
 
-    <div class="mx-2 mx-lg-5">
+    <div class="bc-home mx-2 mx-lg-5">
 
         {{-- Work waiting on a human. Each tile links straight into its queue. --}}
         @if ($can('orders') || $can('credits-transfer') || $can('kyc-queue'))
-        <h5 class="font-weight-bold mt-4 mb-3">Needs attention</h5>
+        <h2 class="bc-section-title">Needs attention</h2>
         <div class="row">
             @php
                 $waiting = [
@@ -46,13 +52,12 @@
                 @continue(!$can(trim(substr($tile['url'], strlen($prefix)), '/')))
                 <div class="col-12 col-md-4 mb-3">
                     <a href="{{ url($tile['url']) }}" class="text-decoration-none">
-                        <div class="card h-100 py-4 px-3 text-center">
-                            <i class="fa {{ $tile['icon'] }} fa-2x mb-2 {{ $tile['value'] > 0 ? 'text-warning' : 'text-muted' }}"></i>
-                            <div style="font-size:2rem; font-weight:700; line-height:1;"
-                                 class="{{ $tile['value'] > 0 ? 'text-warning' : 'text-muted' }}">
-                                {{ number_format($tile['value']) }}
+                        <div class="card h-100 bc-stat">
+                            <div class="bc-stat-head mb-2">
+                                {{ $tile['label'] }}
+                                <span class="bc-stat-icon {{ $tile['value'] > 0 ? 'bc-attention' : '' }}"><i class="fa {{ $tile['icon'] }}" aria-hidden="true"></i></span>
                             </div>
-                            <div class="text-muted mt-1">{{ $tile['label'] }}</div>
+                            <div class="bc-stat-value {{ $tile['value'] > 0 ? 'text-warning' : '' }}">{{ number_format($tile['value']) }}</div>
                         </div>
                     </a>
                 </div>
@@ -64,16 +69,16 @@
         @if ($can('orders'))
         {{-- Revenue and profit. Only trustworthy since orders.total_price became
              DECIMAL: as LONGTEXT, MySQL silently coerced bad rows to 0 inside SUM(). --}}
-        <h5 class="font-weight-bold mt-4 mb-3">Sales</h5>
+        <h2 class="bc-section-title">Sales</h2>
         <div class="row">
             @foreach (['today' => 'Today', 'month' => 'This month', 'all_time' => 'All time'] as $key => $label)
                 @php $r = $revenue[$key] ?? ['orders' => 0, 'revenue' => 0, 'profit' => 0]; @endphp
                 <div class="col-12 col-md-4 mb-3">
-                    <div class="card h-100 py-4 px-3">
-                        <div class="text-muted text-uppercase" style="font-size:.75rem; letter-spacing:.05em;">{{ $label }}</div>
-                        <div style="font-size:1.75rem; font-weight:700; line-height:1.2;">{{ $money($r['revenue']) }}</div>
-                        <div class="text-success" style="font-weight:600;">{{ $money($r['profit']) }} profit</div>
-                        <div class="text-muted mt-1">{{ number_format($r['orders']) }} approved order(s)</div>
+                    <div class="card h-100 bc-stat">
+                        <div class="bc-stat-eyebrow mb-1">{{ $label }}</div>
+                        <div class="bc-stat-value">{{ $money($r['revenue']) }}</div>
+                        <div class="text-success font-weight-bold">{{ $money($r['profit']) }} profit</div>
+                        <div class="bc-stat-note mt-1">{{ number_format($r['orders']) }} approved order(s)</div>
                     </div>
                 </div>
             @endforeach
@@ -84,7 +89,7 @@
         @if ($can('supplier-health'))
         {{-- Conditions that are silently wrong. Every one of these was previously
              invisible until a customer complained. --}}
-        <h5 class="font-weight-bold mt-4 mb-3">System health</h5>
+        <h2 class="bc-section-title">System health</h2>
         <div class="row">
             @php
                 $alerts = [
@@ -113,12 +118,9 @@
 
             @foreach ($alerts as $alert)
                 <div class="col-12 col-md-3 mb-3">
-                    <div class="card h-100 py-3 px-3 {{ $alert['value'] > 0 ? 'border-danger' : '' }}" title="{{ $alert['hint'] }}">
-                        <div style="font-size:1.5rem; font-weight:700;"
-                             class="{{ $alert['value'] > 0 ? 'text-danger' : 'text-muted' }}">
-                            {{ number_format($alert['value']) }}
-                        </div>
-                        <div class="text-muted" style="font-size:.85rem;">{{ $alert['label'] }}</div>
+                    <div class="card h-100 bc-stat {{ $alert['value'] > 0 ? 'border-danger' : '' }}" title="{{ $alert['hint'] }}">
+                        <div class="bc-stat-value bc-small {{ $alert['value'] > 0 ? 'text-danger' : '' }}">{{ number_format($alert['value']) }}</div>
+                        <div class="bc-stat-note">{{ $alert['label'] }}</div>
                     </div>
                 </div>
             @endforeach
@@ -126,13 +128,15 @@
 
         <div class="row">
             <div class="col-12 col-md-6 mb-4">
-                <div class="card h-100 py-3 px-3">
-                    <div class="text-muted text-uppercase mb-2" style="font-size:.75rem; letter-spacing:.05em;">Suppliers enabled</div>
+                <div class="card h-100 bc-stat">
+                    <div class="bc-stat-eyebrow mb-2">Suppliers enabled</div>
                     @if (!empty($health['suppliers']))
-                        @foreach ($health['suppliers'] as $supplier)
-                            <span class="badge badge-secondary mr-1">{{ $supplier }}</span>
-                        @endforeach
-                        <a href="{{ url($prefix . '/supplier-health') }}" class="d-block mt-3">Supplier health &amp; balances &rarr;</a>
+                        <div class="d-flex flex-wrap">
+                            @foreach ($health['suppliers'] as $supplier)
+                                <span class="badge badge-secondary mr-1 mb-1">{{ $supplier }}</span>
+                            @endforeach
+                        </div>
+                        <a href="{{ url($prefix . '/supplier-health') }}" class="bc-link d-block mt-3">Supplier health &amp; balances &rarr;</a>
                     @else
                         <span class="text-muted">None configured.</span>
                     @endif
@@ -140,15 +144,15 @@
             </div>
 
             <div class="col-12 col-md-6 mb-4">
-                <div class="card h-100 py-3 px-3">
-                    <div class="text-muted text-uppercase mb-2" style="font-size:.75rem; letter-spacing:.05em;">Queue</div>
+                <div class="card h-100 bc-stat">
+                    <div class="bc-stat-eyebrow mb-2">Queue</div>
                     @if (is_null($health['queued_jobs'] ?? null))
                         <span class="text-muted">
                             Running inline (QUEUE_CONNECTION=sync) — supplier calls block the approve request.
                         </span>
                     @else
-                        <div style="font-size:1.5rem; font-weight:700;">{{ number_format($health['queued_jobs']) }}</div>
-                        <div class="text-muted" style="font-size:.85rem;">job(s) waiting to be processed</div>
+                        <div class="bc-stat-value bc-small">{{ number_format($health['queued_jobs']) }}</div>
+                        <div class="bc-stat-note">job(s) waiting to be processed</div>
                     @endif
                 </div>
             </div>
