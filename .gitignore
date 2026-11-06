@@ -16,3 +16,6 @@ yarn-error.log
 /.fleet
 /.idea
 /.vscode
+
+# Each server owns its own root .htaccess (production routes to public/ from it).
+/.htaccess
