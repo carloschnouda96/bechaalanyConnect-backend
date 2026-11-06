@@ -35,7 +35,15 @@ $(document).ready(function () {
     });
 
     $('.menu-dropdown-wrapper > a').on('click', function () {
-        $(this).closest('.menu-dropdown-wrapper').find('.menu-dropdown').slideToggle();
+        var wrapper = $(this).closest('.menu-dropdown-wrapper').toggleClass('open');
+        $(this).attr('aria-expanded', wrapper.hasClass('open') ? 'true' : 'false');
+        wrapper.find('.menu-dropdown').slideToggle();
+    });
+
+    $('.menu-dropdown-wrapper > a').on('keydown', function (e) {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        $(this).trigger('click');
     });
 
     $('#burger').on('click', function () {

@@ -40,6 +40,8 @@ return [
 	    	'asset?path=css/dataTables.min.css',
 	    	'asset?path=css/select2.min.css',
 	    	'asset?path=css/main.min.css',
+	    	// Bechaalany Connect theme. Stays last so it wins over the vendor stylesheet.
+	    	'cms-assets/css/brand.css',
 	    ],
 
 
@@ -73,30 +75,32 @@ return [
     */
 
     'favicon' => [
-        'apple-icon-57x57' => 'asset?path=favicon/apple-icon-57x57.png',
-        'apple-icon-60x60' => 'asset?path=favicon/apple-icon-60x60.png',
-        'apple-icon-72x72' => 'asset?path=favicon/apple-icon-72x72.png',
-        'apple-icon-76x76' => 'asset?path=favicon/apple-icon-76x76.png',
-        'apple-icon-114x114' => 'asset?path=favicon/apple-icon-114x114.png',
-        'apple-icon-120x120' => 'asset?path=favicon/apple-icon-120x120.png',
-        'apple-icon-144x144' => 'asset?path=favicon/apple-icon-144x144.png',
-        'apple-icon-152x152' => 'asset?path=favicon/apple-icon-152x152.png',
-        'apple-icon-180x180' => 'asset?path=favicon/apple-icon-180x180.png',
-        'android-icon-192x192' => 'asset?path=favicon/android-icon-192x192.png',
-        'favicon-32x32' => 'asset?path=favicon/favicon-32x32.png',
-        'favicon-96x96' => 'asset?path=favicon/favicon-96x96.png',
-        'favicon-16x16' => 'asset?path=favicon/favicon-16x16.png',
-        'manifest' => 'asset?path=favicon/manifest.json',
-        'msapplication-TileColor' => '#ffffff',
-        'msapplication-TileImage' => 'asset?path=favicon/ms-icon-144x144.png',
-        'theme-color' => '#ffffff',
+        'apple-icon-57x57' => 'cms-assets/favicon/apple-icon-57x57.png',
+        'apple-icon-60x60' => 'cms-assets/favicon/apple-icon-60x60.png',
+        'apple-icon-72x72' => 'cms-assets/favicon/apple-icon-72x72.png',
+        'apple-icon-76x76' => 'cms-assets/favicon/apple-icon-76x76.png',
+        'apple-icon-114x114' => 'cms-assets/favicon/apple-icon-114x114.png',
+        'apple-icon-120x120' => 'cms-assets/favicon/apple-icon-120x120.png',
+        'apple-icon-144x144' => 'cms-assets/favicon/apple-icon-144x144.png',
+        'apple-icon-152x152' => 'cms-assets/favicon/apple-icon-152x152.png',
+        'apple-icon-180x180' => 'cms-assets/favicon/apple-icon-180x180.png',
+        'android-icon-192x192' => 'cms-assets/favicon/android-icon-192x192.png',
+        'favicon-32x32' => 'cms-assets/favicon/favicon-32x32.png',
+        'favicon-96x96' => 'cms-assets/favicon/favicon-96x96.png',
+        'favicon-16x16' => 'cms-assets/favicon/favicon-16x16.png',
+        'manifest' => 'cms-assets/favicon/manifest.json',
+        'msapplication-TileColor' => '#070707',
+        'msapplication-TileImage' => 'cms-assets/favicon/ms-icon-144x144.png',
+        'theme-color' => '#070707',
     ],
-    'logo' => 'asset?path=images/logo.png',
-    'loading' => 'asset?path=images/loading.png',
-    'footer_slogan' => 'The Tree is the code',
-    'footer_copyright' => 'V0.1 All Right Reserved Copyright &reg; <a href="http://hellotree.co/" target="_blank" class="font-weight-bold">HELLOTREE</a>',
-    'tab_title' => 'HELLOTREE | CMS',
-    'home_title' => 'HELLOTREE CMS',
+    'logo' => 'cms-assets/images/logo.png',
+    // White-text version for the black sidebar (layouts/dashboard.blade.php).
+    'logo_sidebar' => 'cms-assets/images/logo-light.png',
+    'loading' => 'cms-assets/images/mark.png',
+    'footer_slogan' => 'Bechaalany Connect Admin',
+    'footer_copyright' => 'All rights reserved &copy; Bechaalany Connect',
+    'tab_title' => 'Bechaalany Connect | Admin',
+    'home_title' => 'Bechaalany Connect',
     'home_content' => '',
 
 
@@ -107,7 +111,7 @@ return [
     */
 
     'ckeditor' => [
-        'colors' => [],
+        'colors' => ['E73828', 'D63224', '070707', '2A2A2A', '8E8E8E', 'E0E0E0', 'F7F7F7', 'FFFFFF'],
     ],
 
 
