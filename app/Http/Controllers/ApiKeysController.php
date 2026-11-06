@@ -8,6 +8,9 @@ use App\Services\Reseller\WebhookSender;
 use App\Services\Reseller\WebhookUrlGuard;
 use App\Services\Reseller\WebhookUrlRejected;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Hash;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
@@ -54,6 +57,8 @@ class ApiKeysController extends Controller
             'allowed_ips.*' => ['ip'],
         ]);
 
+        $this->confirmPassword($request);
+
         if (ApiKey::where('user_id', $user->id)->whereNull('revoked_at')->count() >= self::MAX_ACTIVE_KEYS) {
             return response()->json([
                 'message' => __('api.api_keys.limit', ['max' => self::MAX_ACTIVE_KEYS]),
@@ -62,6 +67,14 @@ class ApiKeysController extends Controller
         }
 
         [$key, $plain] = ApiKey::issue($user, $data['name'], $data['allowed_ips'] ?? null);
+
+        try {
+            Mail::send('emails.api-key-created', ['user' => $user, 'keyName' => $key->name], function ($message) use ($user) {
+                $message->to($user->email)->subject(__('emails.subjects.api_key_created'));
+            });
+        } catch (\Exception $e) {
+            Log::error('API key notice failed', ['exception' => $e]);
+        }
 
         // The only time the full key is ever returned.
         return response()->json([
@@ -98,6 +111,8 @@ class ApiKeysController extends Controller
         $data = $request->validate(['url' => ['required', 'string', 'max:2048', 'url']]);
         $url = trim($data['url']);
 
+        $this->confirmPassword($request);
+
         try {
             $guard->resolve($url);
         } catch (WebhookUrlRejected $e) {
@@ -131,6 +146,8 @@ class ApiKeysController extends Controller
         if ($denied = $this->apiDisabled($user)) {
             return $denied;
         }
+
+        $this->confirmPassword($request);
 
         $webhook = ApiWebhook::where('user_id', $user->id)->first();
 
@@ -179,7 +196,8 @@ class ApiKeysController extends Controller
         } catch (WebhookUrlRejected $e) {
             [$status, $error] = [null, $e->getMessage()];
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            [$status, $error] = [null, 'Connection failed: ' . $e->getMessage()];
+            // The transport text can describe which hosts and ports answer.
+            [$status, $error] = [null, 'Connection failed.'];
         }
 
         $webhook->recordDelivery($status, $error);
@@ -199,6 +217,19 @@ class ApiKeysController extends Controller
         ApiWebhook::where('user_id', $request->user()->id)->delete();
 
         return response()->json(['message' => __('api.api_keys.webhook_removed')]);
+    }
+
+    /**
+     * A key spends the balance and reads delivered codes, and a webhook receives them, so
+     * a stolen session token alone must not be able to set up either.
+     */
+    private function confirmPassword(Request $request): void
+    {
+        $password = $request->input('current_password');
+
+        if (!is_string($password) || !Hash::check($password, $request->user()->password)) {
+            throw ValidationException::withMessages(['current_password' => [__('api.api_keys.password_required')]]);
+        }
     }
 
     private function apiDisabled($user)

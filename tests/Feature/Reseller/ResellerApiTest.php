@@ -314,7 +314,7 @@ class ResellerApiTest extends TestCase
     {
         Sanctum::actingAs($this->reseller(['api_enabled' => false]));
 
-        $this->postJson('/api/user/api-keys', ['name' => 'My shop'])
+        $this->postJson('/api/user/api-keys', ['name' => 'My shop', 'current_password' => 'secret-Password1'])
             ->assertStatus(403)->assertJsonPath('code', 'api_not_enabled');
     }
 
@@ -323,7 +323,7 @@ class ResellerApiTest extends TestCase
         $user = $this->reseller();
         Sanctum::actingAs($user);
 
-        $plain = $this->postJson('/api/user/api-keys', ['name' => 'My shop'])->assertStatus(201)->json('key');
+        $plain = $this->postJson('/api/user/api-keys', ['name' => 'My shop', 'current_password' => 'secret-Password1'])->assertStatus(201)->json('key');
         $this->assertStringStartsWith(ApiKey::PREFIX, $plain);
 
         $keys = $this->getJson('/api/user/api-keys')->assertOk()->json('keys');

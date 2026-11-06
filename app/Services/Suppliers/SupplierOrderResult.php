@@ -15,6 +15,9 @@ class SupplierOrderResult
     public const COMPLETED = 'completed';
     public const FAILED = 'failed';
 
+    /** An order sent with its outcome unknown. Not polled; staff resolve it in the CMS. */
+    public const PARKED_ID_PREFIX = 'parked-';
+
     public function __construct(
         /** The supplier's order id, when one was returned. */
         public ?string $externalOrderId,

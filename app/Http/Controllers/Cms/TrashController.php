@@ -5,10 +5,12 @@ namespace App\Http\Controllers\Cms;
 use App\CreditsTransfer;
 use App\Http\Controllers\Controller;
 use App\Order;
+use App\Services\Auth\CredentialRevocation;
 use App\User;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -81,7 +83,18 @@ class TrashController extends Controller
         // Only `deleted_at` is touched. credits_applied_status stays exactly as it was,
         // so the ledger and the order's status remain in agreement — restoring must not
         // look like a status change and must not move any credits.
-        $record->restore();
+        DB::transaction(function () use ($record, $type) {
+            $record->restore();
+
+            // Deleting an account revokes nothing, because it is meant to be reversible. So
+            // nothing issued before the delete comes back with it: whoever held those
+            // credentials when staff took the account down must not regain them.
+            if ($type === 'users') {
+                $user = \App\Models\User::withoutGlobalScopes()->findOrFail($record->getKey());
+                $user->tokens()->delete();
+                CredentialRevocation::afterPasswordChange($user);
+            }
+        });
 
         return back()->with('success', $this->label($type, $id) . ' restored.');
     }
@@ -97,7 +110,17 @@ class TrashController extends Controller
         $label = $this->label($type, $id);
 
         try {
-            $record->forceDelete();
+            $refusal = DB::transaction(function () use ($record, $type, $id) {
+                $locked = $record->newQueryWithoutScopes()->where('id', $id)->lockForUpdate()->first();
+
+                if ($locked && $why = $this->moneyReason($type, (int) $id)) {
+                    return $why;
+                }
+
+                $record->forceDelete();
+
+                return null;
+            });
         } catch (QueryException $e) {
             Log::warning('CMS purge blocked by a foreign key', [
                 'type' => $type,
@@ -108,7 +131,25 @@ class TrashController extends Controller
             return back()->with('success', $label . ' cannot be deleted permanently: ' . $this->explain($type));
         }
 
+        if ($refusal) {
+            return back()->with('success', $label . ' cannot be deleted permanently: ' . $refusal);
+        }
+
         return back()->with('success', $label . ' deleted permanently.');
+    }
+
+    /** The same rule the delete button applies, or a purge would be the way around it. */
+    private function moneyReason(string $type, int $id): ?string
+    {
+        if ($type === 'orders' && GuardedRecordDeleteController::ordersHoldingCredits([$id])) {
+            return 'it still holds the customer\'s credits. Restore it and reject it first, which refunds them.';
+        }
+
+        if ($type === 'credits-transfer' && GuardedRecordDeleteController::transfersHoldingCredits([$id])) {
+            return 'it has credited the customer. Restore it and reject it first, which takes the credits back.';
+        }
+
+        return null;
     }
 
     /**
@@ -151,6 +192,8 @@ class TrashController extends Controller
             abort(404);
         }
 
-        return $model::withTrashed()->withoutGlobalScope('cms_draft_flag')->find($id);
+        // Only rows that are actually deleted. Reaching a live row let this page hard-delete
+        // paid orders and approved top-ups past the delete button's money guard.
+        return $model::onlyTrashed()->withoutGlobalScope('cms_draft_flag')->find($id);
     }
 }

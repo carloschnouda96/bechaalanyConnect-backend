@@ -10,6 +10,9 @@ use App\UserNotification;
 
 class NotificationController extends Controller
 {
+    /** These two run on a timer from every open tab, so they answer with recent rows only. */
+    private const POLL_LIMIT = 100;
+
     /**
      * Get pending credit notifications for the authenticated user
      * Route: GET /user/notifications/credits
@@ -23,7 +26,7 @@ class NotificationController extends Controller
             return response()->json(['error' => __('api.unauthorized')], 401);
         }
 
-        $perPage = min((int) $request->get('limit', 20), 50);
+        $perPage = min(max(1, (int) $request->get('limit', 20)), 50);
 
         $query = UserNotification::where('users_id', $user->id);
 
@@ -683,6 +686,7 @@ class NotificationController extends Controller
         // Fetch all notifications for the user, ordered by creation date
         $notifications = UserNotification::where('users_id', $user->id)
             ->orderBy('created_at', 'desc')
+            ->limit(self::POLL_LIMIT)
             ->get();
 
         if ($notifications->isEmpty()) {
@@ -716,12 +720,14 @@ class NotificationController extends Controller
         $notifications = UserNotification::where('users_id', $user->id)
             ->whereNotNull('data')
             ->orderBy('created_at', 'desc')
+            ->limit(self::POLL_LIMIT * 5)
             ->get()
             ->filter(function ($notification) {
                 $data = self::dataOf($notification);
                 // Only return notifications that have credits_transfer_id (credit-related)
                 return isset($data['credits_transfer_id']) && !empty($data['credits_transfer_id']);
-            });
+            })
+            ->take(self::POLL_LIMIT);
 
         if ($notifications->isEmpty()) {
             return response()->json([]);

@@ -22,6 +22,7 @@ class LockedCmsActionController extends Controller
 {
     private const REASONS = [
         'orders' => 'Orders are placed by customers from the storefront, which debits their credits. An order created here would have no payment behind it.',
+        'credits-transfer' => 'Top-ups are requested by customers with a receipt. To credit a customer by hand, adjust the balance on their user page, which records a reason.',
         'statuses' => 'Statuses are system data — the code relies on their ids (1 Approved, 2 Rejected, 3 Pending). You can rename them, but not add or delete.',
         'product-type' => 'Product types are system data — the storefront purchase form is chosen by their ids. You can rename them, but not add or delete.',
     ];

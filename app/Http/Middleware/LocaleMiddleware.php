@@ -18,7 +18,7 @@ class LocaleMiddleware
      */
     public function handle(Request $request, Closure $next)
     {
-        $language = Language::where('slug', $request->locale)->firstOrFail();
+        $language = Language::where('slug', $request->route('locale'))->firstOrFail();
 
         App::setLocale($language->slug);
 

@@ -290,7 +290,7 @@ class CatalogImportTest extends TestCase
         $this->assertStringContainsString('text/csv', $response->headers->get('Content-Type'));
 
         $body = $response->streamedContent();
-        $this->assertStringContainsString(implode(',', array_slice(CatalogCsv::header(), 0, 3)), $body);
+        $this->assertStringContainsString(CatalogCsv::line(array_slice(CatalogCsv::header(), 0, 3)), $body);
     }
 
     public function test_preview_stages_the_file_without_writing(): void
@@ -323,5 +323,51 @@ class CatalogImportTest extends TestCase
     public function test_the_page_requires_an_admin(): void
     {
         $this->get('/' . config('hellotree.cms_route_prefix') . '/catalog-import')->assertRedirect();
+    }
+
+    public function test_a_slug_that_is_not_url_safe_is_refused(): void
+    {
+        $subcategory = $this->subcategory();
+        [$product, $variation] = $this->manualProduct($subcategory);
+
+        $rows = $this->parse($this->csv([$this->rowFor($product, $variation, ['product_slug' => '=HYPERLINK("http://evil.test")'])]));
+
+        $this->assertSame(CatalogImporter::ERROR, (new CatalogImporter())->plan($rows)[0]['action']);
+    }
+
+    public function test_an_old_slug_is_exported_as_text_not_as_a_formula(): void
+    {
+        $subcategory = $this->subcategory();
+        [$product] = $this->manualProduct($subcategory);
+        $product->forceFill(['slug' => '=cmd-' . uniqid()])->save();
+
+        $exported = collect(iterator_to_array(CatalogCsv::rows(), false))->firstWhere('product_slug', "'" . $product->slug);
+
+        $this->assertNotNull($exported);
+    }
+
+    public function test_every_exported_cell_is_quoted_so_a_semicolon_cannot_start_a_new_cell(): void
+    {
+        $this->assertSame('"a;=1+1;b","","5"', CatalogCsv::line(['a;=1+1;b', null, 5]));
+    }
+
+    public function test_a_quoted_export_line_parses_back_to_the_same_values(): void
+    {
+        $this->assertSame(['a;=1+1;b', '', '5', 'say "hi"'], str_getcsv(CatalogCsv::line(['a;=1+1;b', null, 5, 'say "hi"']), ',', '"', ''));
+    }
+
+    public function test_an_unedited_export_re_imports_with_no_errors(): void
+    {
+        $subcategory = $this->subcategory();
+        [$product] = $this->manualProduct($subcategory);
+
+        $body = $this->actingAs($this->admin(), 'admin')
+            ->get('/' . config('hellotree.cms_route_prefix') . '/catalog-import/export')
+            ->streamedContent();
+
+        $rows = $this->parse($body);
+        $mine = collect($rows)->firstWhere('product_slug', $product->slug);
+        $this->assertNotNull($mine, 'the exported file must parse back into its rows');
+        $this->assertSame(CatalogImporter::UNCHANGED, (new CatalogImporter())->plan([$mine])[0]['action']);
     }
 }

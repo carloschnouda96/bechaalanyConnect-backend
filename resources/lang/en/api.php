@@ -37,6 +37,7 @@ return [
     ],
 
     'credits' => [
+        'too_many_pending' => 'You already have several top-ups waiting for review. Please wait until they are processed.',
         'kyc_required' => 'Your account must be verified before requesting credits.',
         'request_submitted' => 'Transfer credit request submitted successfully.',
         'receipt_not_found' => 'Receipt not found.',
@@ -71,7 +72,10 @@ return [
     'auth' => [
         'registered' => 'Registration successful. Please verify your email.',
         'registered_no_email' => 'Your account was created, but the verification email could not be sent. Please use "resend code".',
-        'too_many_codes' => 'Too many incorrect codes. Request a new one.',
+        'password_required' => 'Choose a password to finish activating this account.',
+        'username_taken' => 'That username was taken while your sign-up was waiting. Please sign up again with another one.',
+        'too_many_codes' => 'Too many incorrect codes. Use the link in your verification email, or request a new code.',
+        'google_email_conflict' => 'This Google account cannot be used here because its email address conflicts with an existing account.',
         'verification_failed' => 'Email verification failed. Check the code and try again.',
         'email_verified' => 'Email verified successfully.',
         'code_resent' => 'If that email needs verification, a new code is on its way.',
@@ -81,6 +85,7 @@ return [
     ],
 
     'api_keys' => [
+        'password_required' => 'Enter your current password to do this. If you sign in with Google, set a password first with Forgot password.',
         'not_enabled' => 'API access is not enabled for your account. Contact us to enable it.',
         'limit' => 'You can have at most :max active API keys. Revoke one first.',
         'revoked' => 'API key revoked.',

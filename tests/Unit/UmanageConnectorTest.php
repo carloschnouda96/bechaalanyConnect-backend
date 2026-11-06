@@ -472,7 +472,7 @@ class UmanageConnectorTest extends TestCase
         );
 
         $this->assertSame(SupplierOrderResult::PENDING, $result->status);
-        $this->assertStringStartsWith('bundle:', (string) $result->externalOrderId);
+        $this->assertStringStartsWith(SupplierOrderResult::PARKED_ID_PREFIX, (string) $result->externalOrderId);
     }
 
     public function test_indeterminate_post_returns_pending_with_prefixed_synthetic_id(): void
@@ -485,7 +485,7 @@ class UmanageConnectorTest extends TestCase
         );
 
         $this->assertSame(SupplierOrderResult::PENDING, $result->status);
-        $this->assertSame('bundle:umanage-uuid-7', $result->externalOrderId);
+        $this->assertSame(SupplierOrderResult::PARKED_ID_PREFIX . 'uuid-7', $result->externalOrderId);
         $this->assertTrue($result->raw['umanage_indeterminate']);
     }
 

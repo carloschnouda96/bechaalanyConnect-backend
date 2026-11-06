@@ -28,6 +28,39 @@ class User extends Authenticatable
     const VERIFICATION_APPROVED = 3;
     const VERIFICATION_REJECTED = 4;
 
+    /** Most recent first and bounded: this ships on every profile read and login. */
+    public const RECENT_ACTIVITY_LIMIT = 100;
+
+    public function loadRecentActivity(): static
+    {
+        $this->setRelation('orders', $this->orders()->orderByDesc('id')->limit(self::RECENT_ACTIVITY_LIMIT)->get());
+        $this->setRelation('credits', $this->credits()->orderByDesc('id')->limit(self::RECENT_ACTIVITY_LIMIT)->get());
+
+        return $this;
+    }
+
+    /**
+     * A handle, not free text. Other people see usernames, and a stranger's sign-up form can
+     * supply one, so it cannot hold a sentence or a link.
+     */
+    const USERNAME_PATTERN = '/^[\pL\pN_-]{3,30}$/u';
+
+    /**
+     * The account whose stored email is exactly this address, ignoring ASCII case.
+     *
+     * users.email is utf8mb4_unicode_ci, which ignores accents, so a plain where() also
+     * returns victim@example.com for victim@exämple.com. That is a different mailbox on
+     * a domain anyone can register. Every lookup by a client-supplied email goes through
+     * here, and mail goes to the stored address, never the one in the request.
+     */
+    public static function findByExactEmail(string $email): ?self
+    {
+        $email = strtolower(trim($email));
+        $user = self::where('email', $email)->first();
+
+        return $user && strtolower(trim($user->email)) === $email ? $user : null;
+    }
+
     const VERIFICATION_STATUS_SLUGS = [
         self::VERIFICATION_UNSUBMITTED => 'unsubmitted',
         self::VERIFICATION_PENDING => 'pending',

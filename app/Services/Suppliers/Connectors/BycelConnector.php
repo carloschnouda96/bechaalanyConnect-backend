@@ -342,6 +342,31 @@ class BycelConnector implements SupplierConnector, PartialCatalogAware
         $isVoucher = $family === self::FAMILY_VOUCHER;
         $purchased = $purchase->response_result !== null && $purchase->response_result !== '';
 
+        // Bycel answered OK, so the number was credited whatever the report shows. Only the
+        // audit row is in question, and staff must not be offered a refund for it.
+        if (!$isVoucher && $purchased && !$outcome->is(BycelClaimOutcome::CLAIMED)) {
+            $this->ledger->noteReason($purchase, 'confirmed; no audit row: ' . $outcome->reason);
+            $this->ledger->markDelivered($purchase);
+
+            return new SupplierOrderResult(
+                externalOrderId: $this->pendingId($family, $order),
+                status: SupplierOrderResult::COMPLETED,
+                raw: $response,
+            );
+        }
+
+        // With no confirmed POST, a lone matching row may be someone else's sale: report
+        // rows carry nothing linking them to an order. Never hand out a PIN on that.
+        if ($outcome->is(BycelClaimOutcome::CLAIMED) && !$purchased) {
+            $this->ledger->markAmbiguous($purchase, [$outcome->row ?? []]);
+
+            return new SupplierOrderResult(
+                externalOrderId: $this->pendingId($family, $order),
+                status: SupplierOrderResult::PENDING,
+                raw: $response + ['bycel_ambiguous' => true, 'reason' => 'single candidate for an unconfirmed purchase'],
+            );
+        }
+
         if ($outcome->is(BycelClaimOutcome::CLAIMED)) {
             $row = $outcome->row ?? [];
             $mpid = (int) ($row['MerchantPurchaseId'] ?? 0);
@@ -349,6 +374,11 @@ class BycelConnector implements SupplierConnector, PartialCatalogAware
             try {
                 $this->ledger->claim($purchase, $mpid, $row);
             } catch (BycelClaimConflictException $e) {
+                // Two polls of one purchase: the other one already holds the claim.
+                if ($this->ledger->holdsClaim($purchase)) {
+                    return $this->claimedResult($order, $purchase, $response);
+                }
+
                 // Another intent got there first — never deliver a contested code.
                 $this->ledger->markAmbiguous($purchase, [$row]);
 
@@ -381,15 +411,15 @@ class BycelConnector implements SupplierConnector, PartialCatalogAware
         }
 
         if ($outcome->is(BycelClaimOutcome::NOT_PURCHASED)) {
-            // Only reachable once a later intent closed the window: provably nothing
-            // was bought, so refunding is safe.
+            // A missing row does not prove a POST with no answer never ran, so a refund
+            // here could give away a purchase. Staff decide on Supplier health.
             if (!$purchased) {
-                $this->ledger->markFailed($purchase, $outcome->reason);
+                $this->ledger->markAmbiguous($purchase, []);
 
                 return new SupplierOrderResult(
                     externalOrderId: $this->pendingId($family, $order),
-                    status: SupplierOrderResult::FAILED,
-                    raw: ['bycel_not_purchased' => $outcome->reason],
+                    status: SupplierOrderResult::PENDING,
+                    raw: $response + ['bycel_needs_review' => $outcome->reason],
                 );
             }
 
@@ -399,13 +429,11 @@ class BycelConnector implements SupplierConnector, PartialCatalogAware
             $this->ledger->noteReason($purchase, $outcome->reason);
         }
 
-        // A recharge that Bycel confirmed is delivered even without an audit row.
-        if (!$isVoucher && $purchased) {
-            return new SupplierOrderResult(
-                externalOrderId: $this->pendingId($family, $order),
-                status: SupplierOrderResult::COMPLETED,
-                raw: $response,
-            );
+        // Paid for and confirmed, but no PIN after an hour: left waiting, this order is on no
+        // list. Staff can see the rows above its watermark and assign or abandon it.
+        if ($isVoucher && $purchased && $purchase->request_at
+            && \Illuminate\Support\Carbon::parse($purchase->request_at)->addHour()->isPast()) {
+            $this->ledger->markAmbiguous($purchase, []);
         }
 
         return new SupplierOrderResult(
@@ -425,22 +453,22 @@ class BycelConnector implements SupplierConnector, PartialCatalogAware
         $stored = $order->external_status ?: SupplierOrderResult::PENDING;
         $rawStored = is_array($order->external_response) ? $order->external_response : [];
 
-        // Already claimed — nothing left to poll.
-        if ($ref !== '' && ctype_digit($ref)) {
-            return new SupplierOrderResult($order->external_order_id, $stored, $rawStored);
-        }
-
         $purchase = $this->ledger->findByOrderUuid($order->external_order_uuid);
         if (!$purchase) {
             return new SupplierOrderResult($order->external_order_id, $stored, $rawStored);
         }
 
         if ($purchase->state === BycelPurchase::STATE_CLAIMED) {
-            return new SupplierOrderResult(
-                $family . ':' . $purchase->merchant_purchase_id,
-                SupplierOrderResult::COMPLETED,
-                $rawStored
-            );
+            return $this->claimedResult($order, $purchase, $rawStored);
+        }
+
+        if ($purchase->state === BycelPurchase::STATE_DELIVERED) {
+            return new SupplierOrderResult($order->external_order_id, SupplierOrderResult::COMPLETED, $rawStored);
+        }
+
+        // Already settled — nothing left to poll.
+        if ($ref !== '' && ctype_digit($ref)) {
+            return new SupplierOrderResult($order->external_order_id, $stored, $rawStored);
         }
 
         if (in_array($purchase->state, [BycelPurchase::STATE_ABANDONED, BycelPurchase::STATE_FAILED], true)) {
@@ -508,7 +536,18 @@ class BycelConnector implements SupplierConnector, PartialCatalogAware
             }
         }
 
-        return 0; // fresh account with no transactions
+        // Rows, but none usable: a watermark of 0 would make the whole page look like ours.
+        // Nothing has been spent yet, so this can simply be retried.
+        if ($rows !== []) {
+            throw new SupplierApiException('Bycel report returned no usable row, so no watermark could be taken.');
+        }
+
+        // An empty report only means a fresh account if we have never bought anything.
+        if ($this->ledger->hasAnyPurchase()) {
+            throw new SupplierApiException('Bycel report came back empty although purchases exist, so no watermark could be taken.');
+        }
+
+        return 0;
     }
 
     /** @return array<string,mixed>|null */
@@ -557,14 +596,47 @@ class BycelConnector implements SupplierConnector, PartialCatalogAware
     private function resolveExisting(Order $order, BycelPurchase $purchase): SupplierOrderResult
     {
         if ($purchase->state === BycelPurchase::STATE_CLAIMED) {
-            return new SupplierOrderResult(
-                $purchase->family . ':' . $purchase->merchant_purchase_id,
-                SupplierOrderResult::COMPLETED,
-                []
-            );
+            return $this->claimedResult($order, $purchase, []);
+        }
+
+        if ($purchase->state === BycelPurchase::STATE_DELIVERED) {
+            return new SupplierOrderResult($this->pendingId((string) $purchase->family, $order), SupplierOrderResult::COMPLETED, []);
         }
 
         return $this->settle($order, $purchase, $this->resolver->resolve($purchase, 1));
+    }
+
+    /**
+     * The claim and the code are saved separately, so a worker can die between them. The PIN
+     * is not stored here, only its hash: read it back from the report, or do not call this
+     * delivered. Completed with no code would be charged and never shown.
+     */
+    private function claimedResult(Order $order, BycelPurchase $purchase, array $raw): SupplierOrderResult
+    {
+        $id = $purchase->family . ':' . $purchase->merchant_purchase_id;
+
+        if ($purchase->family !== self::FAMILY_VOUCHER || filled($order->code)) {
+            return new SupplierOrderResult($id, SupplierOrderResult::COMPLETED, $raw);
+        }
+
+        foreach (config('services.bycel.report_page_sizes', [20, 50, 100, 200]) as $size) {
+            foreach ($this->client->lastPinReport((int) $size) as $row) {
+                if (is_array($row)
+                    && (string) ($row['MerchantPurchaseId'] ?? '') === (string) $purchase->merchant_purchase_id
+                    && hash_equals((string) $purchase->pin_hash, hash('sha256', (string) ($row['PinCode'] ?? '')))) {
+                    $this->applyPin($order, $row);
+
+                    return new SupplierOrderResult($id, SupplierOrderResult::COMPLETED, $raw);
+                }
+            }
+        }
+
+        Log::critical('Bycel purchase is claimed but its PIN cannot be read back', [
+            'order_id' => $order->id,
+            'purchase_id' => $purchase->id,
+        ]);
+
+        return new SupplierOrderResult($order->external_order_id, SupplierOrderResult::PENDING, $raw);
     }
 
     /** A dead intent may be retried; a live or contested one may not. */

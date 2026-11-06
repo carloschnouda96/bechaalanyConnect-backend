@@ -8,6 +8,6 @@
 </head>
 <body>
     <redoc spec-url="{{ asset('openapi/reseller-v1.yaml') }}" hide-download-button="false" expand-responses="200,201"></redoc>
-    <script src="https://cdn.jsdelivr.net/npm/redoc@2.1.5/bundles/redoc.standalone.js"></script>
+    <script src="{{ asset('openapi/redoc.standalone.js') }}"></script>
 </body>
 </html>

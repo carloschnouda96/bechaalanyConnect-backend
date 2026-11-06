@@ -255,7 +255,7 @@ class UsharezConnectorTest extends TestCase
         );
 
         $this->assertSame(SupplierOrderResult::PENDING, $result->status);
-        $this->assertSame('usharez-uuid-7', $result->externalOrderId);
+        $this->assertSame(SupplierOrderResult::PARKED_ID_PREFIX . 'uuid-7', $result->externalOrderId);
         $this->assertTrue($result->raw['usharez_indeterminate']);
     }
 
@@ -384,7 +384,7 @@ class UsharezConnectorTest extends TestCase
         );
 
         $this->assertSame(SupplierOrderResult::PENDING, $result->status);
-        $this->assertSame('usharez-uuid-9', $result->externalOrderId);
+        $this->assertSame(SupplierOrderResult::PARKED_ID_PREFIX . 'uuid-9', $result->externalOrderId);
         $this->assertTrue($result->raw['usharez_indeterminate']);
     }
 

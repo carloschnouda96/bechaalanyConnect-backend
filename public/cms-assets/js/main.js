@@ -276,8 +276,8 @@ $(document).ready(function () {
         var ckeditor = CKEDITOR.replace(this.id, {
             versionCheck: false,
             height: 400,
-            extraPlugins: 'format,embed,autoembed,image,maximize,blockquote,justify,bidi' + (CKEditorColors ? ',colorbutton' : ''),
-            embed_provider: '//ckeditor.iframe.ly/api/oembed?url={url}&callback={callback}',
+            extraPlugins: 'format,image,maximize,blockquote,justify,bidi' + (CKEditorColors ? ',colorbutton' : ''),
+            disallowedContent: 'script; *[on*]',
             format_tags: 'p;h1;h2;h3;h4;h5;h6',
             colorButton_colors: CKEditorColors,
             colorButton_enableAutomatic: false,

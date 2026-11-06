@@ -56,13 +56,13 @@ Route::post('/auth/google-sync', [SocialiteController::class, 'syncUser'])
 
 //Register Routes
 Route::post('/register', [RegisteredUserController::class, 'store'])
-    ->middleware(['throttle:auth', 'locale.header']);
+    ->middleware(['throttle:auth-mail', 'locale.header']);
 
 //Email Verification Routes
 Route::post('/verify-email', [RegisteredUserController::class, 'verifyEmail'])
     ->middleware(['throttle:auth', 'locale.header']);
 Route::post('/resend-verification-code', [RegisteredUserController::class, 'verifyEmailSendNewCode'])
-    ->middleware(['throttle:auth', 'locale.header']);
+    ->middleware(['throttle:auth-mail', 'locale.header']);
 
 //Contact Form Routes
 Route::post('/contact-form-submit', [ContactController::class, 'submit'])
@@ -209,7 +209,7 @@ Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function 
      | what dragged the whole price table for every product into this response.
      */
     Route::get('/user/profile', function (Request $request) {
-        $user = $request->user()->loadMissing('user_types');
+        $user = $request->user()->loadMissing('user_types')->loadRecentActivity();
 
         return response()->json([
             'user' => $user,
@@ -237,7 +237,7 @@ Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function 
     Route::put('/user/update', [SessionController::class, 'updateProfile']);
 
     //Change User Password
-    Route::put('/change-password', [SessionController::class, 'changePassword']);
+    Route::put('/change-password', [SessionController::class, 'changePassword'])->middleware('throttle:auth');
 });
 
 
@@ -282,7 +282,7 @@ Route::middleware('locale')->prefix('{locale}')->group(function () {
 
     //Password Reset Routes
     Route::post('/forgot-password', [RegisteredUserController::class, 'forgotPasswordSendEmail'])
-        ->middleware('throttle:auth');
+        ->middleware('throttle:auth-mail');
     Route::post('/reset-password', [RegisteredUserController::class, 'resetPasswordSendEmail'])
         ->middleware('throttle:auth');
 });

@@ -130,6 +130,35 @@
                 </table>
             </div>
         @endif
+
+        <h5 class="mt-4">Parked orders</h5>
+        <p class="text-muted">
+            The request to the supplier gave no definite answer, or never finished. It is not sent
+            again and not refunded automatically. Check the supplier's panel: if there is no order,
+            reject it on the order page to refund the customer.
+        </p>
+        @if ($parked->isEmpty())
+            <p class="text-success mb-0">None.</p>
+        @else
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead>
+                        <tr><th>Order</th><th>Customer</th><th>Supplier</th><th class="text-right">Total</th><th>Placed</th></tr>
+                    </thead>
+                    <tbody>
+                        @foreach ($parked as $order)
+                            <tr>
+                                <td><a href="{{ url($prefix . '/orders/' . $order->id . '/edit') }}">#{{ $order->id }}</a></td>
+                                <td>{{ optional($order->users)->username ?? '—' }}</td>
+                                <td>{{ $order->external_source }}</td>
+                                <td class="text-right">{{ number_format((float) $order->total_price, 2) }}</td>
+                                <td>{{ optional($order->created_at)->format('Y-m-d H:i') }}</td>
+                            </tr>
+                        @endforeach
+                    </tbody>
+                </table>
+            </div>
+        @endif
     </div>
 
     <div class="card mx-lg-5 mx-2 py-4 px-3">

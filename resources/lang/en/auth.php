@@ -13,7 +13,8 @@ return [
     |
     */
 
-    'failed' => 'These credentials do not match our records',
+    'too_many_failures' => 'Too many failed sign-in attempts. Try again later, or reset your password.',
+    'failed' => 'These credentials do not match our records. If you just signed up, use the link in your verification email first.',
     'password' => 'The provided password is incorrect',
     'throttle' => 'Too many login attempts. Please try again in :seconds seconds',
     'unverified' => 'Please verify your email',

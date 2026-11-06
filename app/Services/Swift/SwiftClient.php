@@ -74,9 +74,14 @@ class SwiftClient
         $action = (string) ($params['action'] ?? '');
         $params['key'] = (string) $this->key;
 
-        $response = in_array($action, self::WRITE_ACTIONS, true)
-            ? $this->write($action, $params)
-            : $this->request()->retry(2, 500, throw: false)->get('/api/v2', $params);
+        try {
+            $response = in_array($action, self::WRITE_ACTIONS, true)
+                ? $this->write($action, $params)
+                : $this->request()->retry(2, 500, throw: false)->get('/api/v2', $params);
+        } catch (ConnectionException $e) {
+            // Its message holds the full URL, key included, and sync errors reach the CMS.
+            throw new SupplierApiException("Swift API request ({$action}) failed: connection error");
+        }
 
         if ($response->failed()) {
             throw new SupplierApiException(
@@ -90,6 +95,11 @@ class SwiftClient
 
         // Perfect Panel signals errors with a bare string or an {error: …} object.
         if ($body === null) {
+            // A purchase answered with nothing readable may still have gone through.
+            if (in_array($action, self::WRITE_ACTIONS, true)) {
+                throw new SupplierIndeterminateException("Swift API request ({$action}) outcome unknown: unreadable reply");
+            }
+
             $raw = trim($response->body());
             if ($raw !== '') {
                 throw new SupplierApiException("Swift API error ({$action}): {$raw}");
@@ -116,7 +126,7 @@ class SwiftClient
         try {
             $response = $this->request()->post('/api/v2', $params);
         } catch (ConnectionException $e) {
-            throw new SupplierIndeterminateException("Swift API request ({$action}) outcome unknown: {$e->getMessage()}");
+            throw new SupplierIndeterminateException("Swift API request ({$action}) outcome unknown: connection error");
         }
 
         if ($response->serverError() || $response->status() === 408) {

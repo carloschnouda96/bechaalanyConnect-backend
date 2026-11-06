@@ -19,3 +19,13 @@
     RewriteCond %{REQUEST_FILENAME} !-f
     RewriteRule ^ index.php [L]
 </IfModule>
+
+# Files on the public disk are stored uploads. Older ones may include HTML or SVG, which
+# must download rather than run on this origin. An <img> tag ignores Content-Disposition.
+<IfModule mod_headers.c>
+    <If "%{REQUEST_URI} =~ m#/storage/.*\.(html?|xhtml|shtml|svgz?|xml|xsl)$#i">
+        Header always set Content-Disposition "attachment"
+        Header always set Content-Security-Policy "sandbox"
+    </If>
+    Header always set X-Content-Type-Options "nosniff"
+</IfModule>

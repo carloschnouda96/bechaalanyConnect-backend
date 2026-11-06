@@ -28,6 +28,7 @@ class BycelPinResolverTest extends TestCase
             'services.bycel.price_tolerance_lbp' => 1.0,
             'services.bycel.face_tolerance_usd' => 0.005,
             'services.bycel.match_product_name' => false,
+            'services.bycel.account_api_only' => true,
             'services.bycel.claim_backoff_ms' => 0,
         ]);
     }
@@ -97,7 +98,7 @@ class BycelPinResolverTest extends TestCase
     /** A short page (fewer rows than requested) means the account has no more. */
     public function test_short_page_counts_as_covered(): void
     {
-        $this->fakeReport([$this->row(101)]);
+        $this->fakeReport([$this->row(100), $this->row(101)]);
 
         $this->assertTrue($this->resolver(new FakeBycelLedger())->resolve($this->purchase())->is(BycelClaimOutcome::CLAIMED));
     }
@@ -183,6 +184,31 @@ class BycelPinResolverTest extends TestCase
 
     // -------------------------------------------------------------------- matching
 
+    public function test_an_empty_report_proves_nothing_once_the_account_has_sales(): void
+    {
+        $this->fakeReport([]);
+
+        $ledger = new FakeBycelLedger();
+        $ledger->nextWatermark = 200;
+
+        $outcome = $this->resolver($ledger)->resolve($this->purchase(['watermark_id' => 100]));
+
+        $this->assertTrue($outcome->is(BycelClaimOutcome::PENDING));
+    }
+
+    public function test_an_upper_bound_at_or_below_the_watermark_is_not_a_closed_window(): void
+    {
+        $this->fakeReport([$this->row(99)]);
+
+        $ledger = new FakeBycelLedger();
+        $ledger->nextWatermark = 100;
+
+        $outcome = $this->resolver($ledger)->resolve($this->purchase(['watermark_id' => 100]));
+
+        // Not "never purchased", which would refund: a person looks at it.
+        $this->assertTrue($outcome->is(BycelClaimOutcome::AMBIGUOUS));
+    }
+
     public function test_voucher_rows_require_a_pin_and_no_recharged_number(): void
     {
         $this->fakeReport([
@@ -234,7 +260,7 @@ class BycelPinResolverTest extends TestCase
     /** Names differ between endpoints ("Alfa Invoice" vs "alfa 4.5$ "), so it is opt-in. */
     public function test_optional_name_matching_tolerates_whitespace_and_case(): void
     {
-        config(['services.bycel.match_product_name' => true]);
+        config(['services.bycel.match_product_name' => true, 'services.bycel.account_api_only' => true]);
         $this->fakeReport([$this->row(101, ['ProductName' => '  ALFA   4.5$  ']), $this->row(99)]);
 
         $this->assertTrue($this->resolver(new FakeBycelLedger())->resolve($this->purchase())->is(BycelClaimOutcome::CLAIMED));
@@ -251,5 +277,73 @@ class BycelPinResolverTest extends TestCase
         $outcome = $this->resolver($ledger)->resolve($this->purchase());
 
         $this->assertTrue($outcome->is(BycelClaimOutcome::PENDING));
+    }
+
+    // ------------------------------------------------------------- unprovable claims
+
+    public function test_a_lone_row_is_not_claimed_while_an_older_purchase_could_own_it(): void
+    {
+        $this->fakeReport([$this->row(100), $this->row(101)]);
+        $ledger = new FakeBycelLedger();
+        $ledger->olderOpenIntent = true;
+
+        $this->assertTrue($this->resolver($ledger)->resolve($this->purchase())->is(BycelClaimOutcome::AMBIGUOUS));
+    }
+
+    public function test_a_lone_row_is_not_claimed_when_the_window_has_no_room(): void
+    {
+        $this->fakeReport([$this->row(100), $this->row(101)]);
+        $ledger = new FakeBycelLedger();
+        $ledger->nextWatermark = 100;
+
+        // $id > $upper would drop the row, so use an upper bound at the row and a higher watermark.
+        $this->fakeReport([$this->row(90), $this->row(101)]);
+        $ledger->nextWatermark = 101;
+        $outcome = $this->resolver($ledger)->resolve($this->purchase(['watermark_id' => 101]));
+
+        $this->assertFalse($outcome->is(BycelClaimOutcome::CLAIMED));
+    }
+
+    public function test_a_lone_row_goes_to_review_while_the_account_may_also_sell_elsewhere(): void
+    {
+        config(['services.bycel.account_api_only' => false]);
+        $this->fakeReport([$this->row(100), $this->row(101)]);
+
+        $this->assertTrue($this->resolver(new FakeBycelLedger())->resolve($this->purchase())->is(BycelClaimOutcome::AMBIGUOUS));
+    }
+
+    public function test_an_order_whose_window_has_no_room_goes_to_review_instead_of_waiting_forever(): void
+    {
+        $this->fakeReport([$this->row(90), $this->row(100)]);
+        $ledger = new FakeBycelLedger();
+        $ledger->nextWatermark = 100;
+
+        $outcome = $this->resolver($ledger)->resolve($this->purchase(['watermark_id' => 100]));
+
+        $this->assertTrue($outcome->is(BycelClaimOutcome::AMBIGUOUS));
+    }
+
+    public function test_a_short_page_that_never_reaches_the_watermark_proves_nothing(): void
+    {
+        $this->fakeReport([$this->row(101)]);
+
+        $this->assertTrue($this->resolver(new FakeBycelLedger())->resolve($this->purchase())->is(BycelClaimOutcome::PENDING));
+    }
+
+    public function test_an_equal_product_name_does_not_prove_a_lone_row_is_ours(): void
+    {
+        config(['services.bycel.account_api_only' => false, 'services.bycel.match_product_name' => true]);
+        $this->fakeReport([$this->row(100), $this->row(101)]);
+
+        $this->assertTrue($this->resolver(new FakeBycelLedger())->resolve($this->purchase())->is(BycelClaimOutcome::AMBIGUOUS));
+    }
+
+    public function test_a_lone_row_after_a_zero_watermark_goes_to_review_even_on_an_api_only_account(): void
+    {
+        $this->fakeReport([$this->row(50)]);
+
+        $outcome = $this->resolver(new FakeBycelLedger())->resolve($this->purchase(['watermark_id' => 0]));
+
+        $this->assertTrue($outcome->is(BycelClaimOutcome::AMBIGUOUS));
     }
 }

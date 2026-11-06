@@ -125,6 +125,7 @@ class DeletedRecordsTest extends TestCase
     public function test_purge_removes_the_row_for_good(): void
     {
         $order = $this->order();
+        $order->forceFill(['statuses_id' => Order::STATUS_REJECTED, 'credits_applied_status' => Order::STATUS_REJECTED])->save();
         $order->delete();
 
         $this->actingAs($this->admin(), 'admin')

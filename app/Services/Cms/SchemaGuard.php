@@ -87,11 +87,11 @@ class SchemaGuard
                 continue;
             }
 
-            $wantType = strtolower($spec['type']);
+            $wantType = self::comparableType($spec['type']);
             $wantNull = $spec['null'] ?? true;
             $wantDefault = $spec['default'] ?? null;
 
-            $haveType = strtolower($live->COLUMN_TYPE);
+            $haveType = self::comparableType($live->COLUMN_TYPE);
             $haveNull = $live->IS_NULLABLE === 'YES';
             $haveDefault = $live->COLUMN_DEFAULT;
 
@@ -191,5 +191,11 @@ class SchemaGuard
         );
 
         return $row !== null;
+    }
+
+    /** MySQL 8 reports tinyint(3) as tinyint: the display width is not a difference. */
+    private static function comparableType(string $type): string
+    {
+        return preg_replace('/\b(tinyint|smallint|mediumint|int|bigint)\(\d+\)/', '$1', strtolower($type));
     }
 }

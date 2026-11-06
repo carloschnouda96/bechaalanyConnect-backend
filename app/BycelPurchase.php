@@ -19,6 +19,9 @@ class BycelPurchase extends Model
     public const STATE_SENT = 'sent';
     /** A last_pin_report row was matched and claimed for this intent. */
     public const STATE_CLAIMED = 'claimed';
+
+    /** Bycel confirmed a recharge. No PIN to wait for, and no report row is needed. */
+    public const STATE_DELIVERED = 'delivered';
     /** Bycel definitively rejected it, or it was provably never purchased. */
     public const STATE_FAILED = 'failed';
     /** More than one candidate row matched — a human must decide. */

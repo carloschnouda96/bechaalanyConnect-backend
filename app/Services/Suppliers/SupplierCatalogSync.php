@@ -241,7 +241,7 @@ class SupplierCatalogSync
                 ->first();
 
             $attributes = [
-                'name' => $dto->categoryName ?: ('Category ' . $externalId),
+                'name' => $dto->categoryName ?: 'Category',
                 'image' => $dto->categoryImage,
             ];
 
@@ -283,7 +283,7 @@ class SupplierCatalogSync
         }
 
         $externalId = $dto->externalId;
-        $name = trim($dto->name) ?: ('Product ' . $externalId);
+        $name = trim($dto->name) ?: 'Product'; // never the id: this becomes a public name and slug
 
         [$category, $subcategory] = $this->ensureLocalTree($supplierCategory, $source);
 
@@ -450,7 +450,7 @@ class SupplierCatalogSync
         }
 
         if (!$product) {
-            $name = trim((string) $supplierCategory->name) ?: ('Category ' . $supplierCategory->external_id);
+            $name = trim((string) $supplierCategory->name) ?: 'Category';
 
             $product = new Product();
             $product->external_source = $source;
@@ -494,7 +494,7 @@ class SupplierCatalogSync
         string $source
     ): array {
         $externalId = $dto->externalId;
-        $name = trim($dto->name) ?: ('Product ' . $externalId);
+        $name = trim($dto->name) ?: 'Product'; // never the id: this becomes a public name and slug
         $cost = $dto->unitCost;
 
         $variation = $this->findVariation($externalId, $source);
@@ -521,8 +521,19 @@ class SupplierCatalogSync
         // Unlike the coin seed above this also applies to an existing row (one that
         // just moved onto a grouped type-5 product): left at 1, a sub-cent per-unit
         // cost rounds `price` to $0.00 and the order is free.
+        //
+        // A row that already holds an owned price is not seeded: that figure was set per
+        // unit, and reading it as the price of 1,000 would sell an $8 package for a cent.
+        // It stays off sale until staff set the unit and the price together.
+        $holdForRepricing = false;
         if ((int) $product->product_type_id === Product::TYPE_SOCIAL && !$variation->unit_amount) {
-            $variation->unit_amount = self::socialPricingUnit($cost);
+            if ($variation->exists && ($variation->manual_price
+                || $variation->priceVariations()->whereNull('profit_percentage')->exists())) {
+                Log::warning('Owned price needs re-pricing before this variation can sell per 1,000', ['variation_id' => $variation->id]);
+                $holdForRepricing = true;
+            } else {
+                $variation->unit_amount = self::socialPricingUnit($cost);
+            }
         }
 
         $variation->product_id = $product->id;
@@ -566,7 +577,7 @@ class SupplierCatalogSync
         // A zero price is not for sale, whatever the feed says: suppliers do list rows at 0,
         // and a sub-cent cost rounds down to $0.00. A later sync with a real price, or a
         // manual price, puts it back on sale with no admin action.
-        $variation->supplier_status = $dto->available && (float) $variation->price > 0
+        $variation->supplier_status = $dto->available && !$holdForRepricing && (float) $variation->price > 0
             ? Product::SUPPLIER_AVAILABLE
             : Product::SUPPLIER_OUT_OF_STOCK;
         $variation->cms_draft_flag = 0;
@@ -644,7 +655,7 @@ class SupplierCatalogSync
      */
     private function ensureLocalTree(SupplierCategory $supplierCategory, string $source): array
     {
-        $name = $supplierCategory->name ?: ('Category ' . $supplierCategory->external_id);
+        $name = $supplierCategory->name ?: 'Category';
 
         $category = $supplierCategory->category_id
             ? Category::withoutGlobalScope('cms_draft_flag')->find($supplierCategory->category_id)
@@ -987,6 +998,8 @@ class SupplierCatalogSync
         if ($base === '') {
             $base = $source;
         }
-        return $base . '-' . Str::slug($suffix);
+        // A keyed hash, not the id: the supplier's id is hidden from the API, and a public
+        // slug must not carry it. Stable per row, so a rerun gives the same value.
+        return $base . '-' . substr(hash_hmac('sha256', $source . '|' . $suffix, (string) config('app.key')), 0, 12);
     }
 }

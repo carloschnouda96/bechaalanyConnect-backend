@@ -16,6 +16,7 @@ class Kernel extends HttpKernel
     protected $middleware = [
         // \App\Http\Middleware\TrustHosts::class,
         \App\Http\Middleware\TrustProxies::class,
+        \App\Http\Middleware\SecurityHeaders::class,
         \Illuminate\Http\Middleware\HandleCors::class,
         \App\Http\Middleware\PreventRequestsDuringMaintenance::class,
         \Illuminate\Foundation\Http\Middleware\ValidatePostSize::class,
@@ -44,12 +45,17 @@ class Kernel extends HttpKernel
             // Before routing reaches the vendor CMS list action, which would otherwise
             // execute any query-builder method named in ?custom_validation.
             \App\Http\Middleware\SanitizeCmsListFilters::class,
+            // Ends a CMS session once its admin's password has changed.
+            \App\Http\Middleware\BindAdminSessionToPassword::class,
+            // Refuses HTML, SVG and scripts on every CMS upload route.
+            \App\Http\Middleware\GuardCmsUploads::class,
         ],
 
         'api' => [
             // \Laravel\Sanctum\Http\Middleware\EnsureFrontendRequestsAreStateful::class,
             \Illuminate\Routing\Middleware\ThrottleRequests::class . ':api',
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
+            \App\Http\Middleware\RefuseVendorCmsApi::class,
         ],
     ];
 

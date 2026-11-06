@@ -70,6 +70,17 @@ class SupplierHealthController extends Controller
             ->limit(100)
             ->get();
 
+        // The outcome at the supplier is unknown, so nothing re-sends or refunds these.
+        // Pending at the supplier: they stay here until staff check and reject, or it resolves.
+        $parked = Order::with('users:id,username,email')
+            ->where('external_status', 'pending')
+            ->where('external_order_id', 'like', \App\Services\Suppliers\SupplierOrderResult::PARKED_ID_PREFIX . '%')
+            // Rejecting settles one but keeps its id, which is what stops a re-send.
+            ->where('statuses_id', Order::STATUS_APPROVED)
+            ->orderBy('created_at')
+            ->limit(100)
+            ->get();
+
         // Bycel purchases the resolver refused to auto-deliver. These are the only
         // orders in the system where a customer is waiting on a human decision.
         $bycelReview = BycelPurchase::with('order:id,users_id,total_price,created_at')
@@ -78,7 +89,7 @@ class SupplierHealthController extends Controller
             ->limit(50)
             ->get();
 
-        return view('cms::pages/supplier-health/index', compact('suppliers', 'unplaced', 'bycelReview'));
+        return view('cms::pages/supplier-health/index', compact('suppliers', 'unplaced', 'parked', 'bycelReview'));
     }
 
     /**
@@ -157,6 +168,11 @@ class SupplierHealthController extends Controller
         $record = BycelPurchase::find($purchase);
         if (!$record) {
             return back()->with('success', 'Bycel purchase not found.');
+        }
+
+        // Bycel answered OK to a direct recharge, so the customer's number was credited.
+        if ($record->family === 'recharge' && filled($record->response_result)) {
+            return back()->with('success', "Bycel purchase #{$record->id} is a recharge Bycel confirmed, so it cannot be abandoned and refunded.");
         }
 
         // Conditional, so a double click or a purchase claimed meanwhile cannot refund a

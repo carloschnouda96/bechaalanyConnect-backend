@@ -6,6 +6,8 @@ use App\Services\Suppliers\SupplierRegistry;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Artisan;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
 
 /**
  * HTTP cron entrypoints for the URL-based production scheduler (the host panel
@@ -85,6 +87,8 @@ class CronController extends Controller
         ignore_user_abort(true);
 
         Artisan::call('queue:work', [
+            // Fulfillment first: the worker re-checks default before each job.
+            '--queue' => 'default,webhooks',
             '--stop-when-empty' => true,
             '--max-time' => 50,
             // A failing job must not be retried forever against a supplier that
@@ -109,11 +113,34 @@ class CronController extends Controller
         @set_time_limit(0);
         ignore_user_abort(true);
 
-        $ran = [];
-        foreach ($this->registry->enabled() as $connector) {
-            $key = $connector->key();
-            Artisan::call("{$key}:{$action}");
-            $ran[] = $key;
+        // One run per action. A stalled supplier makes a run outlast the cron interval, and
+        // each overlapping one pins a PHP worker with no time limit.
+        $lock = Cache::lock('cron-run:' . $action, 3600);
+        if (!$lock->get()) {
+            // Logged: a killed worker holds this for up to an hour, and the wget still sees a 200.
+            Log::warning('Cron run skipped: the previous one still holds the lock', ['action' => $action]);
+
+            return response()->json(['ok' => true, 'action' => $action, 'skipped' => 'already_running']);
+        }
+
+        try {
+            $ran = [];
+            foreach ($this->registry->enabled() as $connector) {
+                $key = $connector->key();
+                Artisan::call("{$key}:{$action}");
+                $ran[] = $key;
+            }
+
+            // Purchases nothing else moves on: a parked or unproven one reaches Supplier health.
+            if ($action === 'check-orders' && in_array('bycel', $ran, true)) {
+                Artisan::call('bycel:reconcile', ['--auto-fail' => true]);
+            }
+
+            if ($action === 'sync') {
+                Artisan::call('cache:prune-expired');
+            }
+        } finally {
+            $lock->release();
         }
 
         return response()->json(['ok' => true, 'action' => $action, 'suppliers' => $ran]);
@@ -144,7 +171,10 @@ class CronController extends Controller
         // Accept the token from a header as well as the query string. Query strings
         // are recorded verbatim in web-server access logs and browser history, so a
         // header is the better channel where the caller can manage it.
-        $provided = (string) ($request->header('X-Cron-Token') ?: $request->query('token'));
+        // Set CRON_TOKEN_HEADER_ONLY once the panel's wget sends the header.
+        $query = $request->query('token');
+        $provided = (string) ($request->header('X-Cron-Token')
+            ?: (config('services.cron.header_only') || !is_string($query) ? '' : $query));
 
         if (!hash_equals($token, $provided)) {
             abort(403);

@@ -1,4 +1,5 @@
-<h2>{{ __('emails.verify_email.greeting', ['name' => isset($user) && $user->username ? $user->username : 'User']) }}</h2>
+{{-- No username: this goes to an address nobody has proven yet, so it must carry no text the requester chose. --}}
+<h2>{{ __('emails.verify_email.greeting', ['name' => __('emails.verify_email.customer')]) }}</h2>
 <br>
 {{ __('emails.verify_email.intro') }}
 <br>

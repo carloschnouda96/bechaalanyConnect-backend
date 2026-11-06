@@ -6,6 +6,8 @@ use App\Order;
 use App\ProductsVariation;
 use App\Services\Suppliers\Contracts\SupplierConnector;
 use App\Services\Suppliers\SupplierApiException;
+use Illuminate\Support\Facades\Log;
+use App\Services\Suppliers\SupplierIndeterminateException;
 use App\Services\Suppliers\SupplierOrderResult;
 use App\Services\Suppliers\SupplierProduct;
 use App\Services\Yassen\YassenClient;
@@ -66,9 +68,9 @@ class YassenConnector implements SupplierConnector
 
             $out[] = new SupplierProduct(
                 externalId: $externalId,
-                name: trim((string) ($raw['name'] ?? ('Product ' . $externalId))),
+                name: trim((string) ($raw['name'] ?? 'Product')),
                 categoryExternalId: (string) ($raw['parent_id'] ?? ''),
-                categoryName: (string) ($raw['category_name'] ?? ('Category ' . ($raw['parent_id'] ?? ''))),
+                categoryName: (string) ($raw['category_name'] ?? 'Category'),
                 categoryImage: $this->normalizeImageUrl($raw['category_img'] ?? null),
                 unitCost: (float) ($raw['price'] ?? 0),
                 available: (bool) ($raw['available'] ?? true),
@@ -125,11 +127,24 @@ class YassenConnector implements SupplierConnector
 
         try {
             $response = $this->client->newOrder($service, $params);
+        } catch (SupplierIndeterminateException $e) {
+            // Not re-sent and not refunded. This platform can be asked about the uuid, so
+            // checkOrder() settles it; staff reject it if it never appears there.
+            Log::critical('Supplier order outcome indeterminate — reconcile manually', [
+                'order_id' => $order->id,
+                'source' => $this->key(),
+                'error' => $e->getMessage(),
+            ]);
+
+            return new SupplierOrderResult(
+                externalOrderId: SupplierOrderResult::PARKED_ID_PREFIX . $order->external_order_uuid,
+                status: SupplierOrderResult::PENDING,
+                raw: ['supplier_indeterminate' => true, 'error' => $e->getMessage()],
+            );
         } catch (SupplierApiException $e) {
             // A refusal the platform documents as final (no balance, bad player
             // id, product gone…) fails the order, which refunds the customer.
-            // Anything else stays an exception: the job retries, and the
-            // platform dedupes a retried order_uuid, so nothing is bought twice.
+            // Any other answer is a refusal too, so the job may retry it.
             if ($e->apiErrorCode !== null && in_array($e->apiErrorCode, $this->finalErrorCodes(), true)) {
                 return new SupplierOrderResult(
                     externalOrderId: null,
@@ -147,8 +162,25 @@ class YassenConnector implements SupplierConnector
             ? $response['data']
             : $response;
 
+        $orderId = (string) ($row['order_id'] ?? $row['id'] ?? '');
+
+        // It answered without naming an order, so it may or may not have one. A null id
+        // would put this on the unplaced list, where Retry sends the purchase again.
+        if ($orderId === '') {
+            Log::critical('Supplier order reply has no order id — reconcile manually', [
+                'order_id' => $order->id,
+                'source' => $this->key(),
+            ]);
+
+            return new SupplierOrderResult(
+                externalOrderId: SupplierOrderResult::PARKED_ID_PREFIX . $order->external_order_uuid,
+                status: SupplierOrderResult::PENDING,
+                raw: ['supplier_indeterminate' => true] + $response,
+            );
+        }
+
         return new SupplierOrderResult(
-            externalOrderId: (string) ($row['order_id'] ?? $row['id'] ?? '') ?: null,
+            externalOrderId: $orderId,
             status: $this->mapStatus($row['status'] ?? null) ?? SupplierOrderResult::PENDING,
             raw: $response,
         );

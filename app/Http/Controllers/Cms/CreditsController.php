@@ -11,6 +11,8 @@ use App\Services\Credits\CreditLedger;
 use App\Services\Credits\DuplicateLedgerEntryException;
 use App\Services\Credits\InsufficientCreditsException;
 use App\Services\Credits\StatusChangeOutcome;
+use App\Services\Credits\StatusChangeRefusedException;
+use App\Support\CmsDraftFlag;
 use Hellotreedigital\Cms\Controllers\CmsPageController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -81,13 +83,23 @@ class CreditsController extends Controller
                 CreditsTransfer::STATUS_REJECTED,
                 CreditsTransfer::STATUS_PENDING,
             ])],
+            // Checked here because the vendor only asks for a number.
+            'amount' => ['sometimes', 'numeric', 'gt:0'],
         ]);
 
-        $redirect = $this->cmsPageController->update($request, $id, 'credits-transfer', 'App\CreditsTransfer', self::class);
+        // The vendor's draft flag skips its validation and nulls any field left out.
+        CmsDraftFlag::strip($request);
+
+        // Held through the vendor save, so a settled row cannot change under this check.
+        $redirect = DB::transaction(function () use ($request, $id) {
+            $this->protectSettledTransfer($request, (int) $id);
+
+            return $this->cmsPageController->update($request, $id, 'credits-transfer', 'App\CreditsTransfer', self::class);
+        });
 
         try {
             $outcome = $this->applyStatusChange((int) $id);
-        } catch (InsufficientCreditsException $e) {
+        } catch (InsufficientCreditsException|StatusChangeRefusedException $e) {
             CreditsTransfer::withoutGlobalScope('cms_draft_flag')
                 ->where('id', $id)
                 ->update(['statuses_id' => $e->revertTo]);
@@ -104,6 +116,38 @@ class CreditsController extends Controller
         }
 
         return $redirect;
+    }
+
+    /**
+     * Once a top-up has credited a customer, its owner and amount are the record of that
+     * credit. A reversal is worked out from this row, so editing them made it debit an
+     * uninvolved customer, or a different figure, with nothing to show why. A wrong
+     * credit is corrected by rejecting the top-up, or on the user balance page.
+     */
+    private function protectSettledTransfer(Request $request, int $id): void
+    {
+        $transfer = CreditsTransfer::withoutGlobalScope('cms_draft_flag')->where('id', $id)->lockForUpdate()->first();
+
+        if (!$transfer || (int) $transfer->credits_applied_status !== CreditsTransfer::STATUS_APPROVED) {
+            return;
+        }
+
+        $errors = [];
+
+        if ($request->filled('users_id') && (int) $request->input('users_id') !== (int) $transfer->users_id) {
+            $errors['users_id'] = ['This top-up has already credited its customer, so its owner cannot change.'];
+        }
+
+        if ($request->filled('amount') && round((float) $request->input('amount'), 2) !== round((float) $transfer->amount, 2)) {
+            $errors['amount'] = ['This top-up has already credited its customer, so its amount cannot change.'];
+        }
+
+        if ($errors) {
+            throw ValidationException::withMessages($errors);
+        }
+
+        // A field left out of the request would otherwise be written back as null.
+        $request->merge(['users_id' => $transfer->users_id, 'amount' => $transfer->amount]);
     }
 
     /**
@@ -163,7 +207,7 @@ class CreditsController extends Controller
                 }
 
                 $applied++;
-            } catch (InsufficientCreditsException $e) {
+            } catch (InsufficientCreditsException|StatusChangeRefusedException $e) {
                 CreditsTransfer::withoutGlobalScope('cms_draft_flag')
                     ->where('id', $id)
                     ->update(['statuses_id' => $e->revertTo]);
@@ -232,9 +276,19 @@ class CreditsController extends Controller
 
                 // Lock order: record first, then user — same as Cms\OrdersController
                 // and SupplierOrderFulfillment, so these paths cannot deadlock.
-                $user = User::where('id', $transfer->users_id)->lockForUpdate()->first();
+                // A soft-deleted customer still has a balance: the ledger moves on that
+                // row, so restoring the account restores the right figure.
+                $user = User::withTrashed()->where('id', $transfer->users_id)->lockForUpdate()->first();
+
+                // An approval on a deleted account would charge or credit someone who can
+                // no longer see it, and a supplier order would never be placed. Rejecting
+                // still works, so the money can always go back.
+                if ($user && $user->trashed() && $current === CreditsTransfer::STATUS_APPROVED && $applied !== CreditsTransfer::STATUS_APPROVED) {
+                    throw new StatusChangeRefusedException($applied, 'This customer\'s account is deleted. Restore it from Deleted records before approving, or reject this record.');
+                }
 
                 if (!$user) {
+                    Log::warning('Top-up status settled with no owner row; no money moved', ['transfer_id' => $transfer->id]);
                     $transfer->credits_applied_status = $current;
                     $transfer->saveQuietly();
 
@@ -242,6 +296,12 @@ class CreditsController extends Controller
                 }
 
                 $amount = (float) $transfer->amount;
+
+                // A row saved before the amount rule existed, or edited outside this page.
+                if ($amount <= 0 && $current === CreditsTransfer::STATUS_APPROVED) {
+                    throw new StatusChangeRefusedException($applied, 'This top-up has no positive amount, so it cannot be approved. Correct the amount first.');
+                }
+
                 $delta = $this->deltaFor($applied, $current, $amount);
 
                 // Reversing an approval takes money back. If the user has already

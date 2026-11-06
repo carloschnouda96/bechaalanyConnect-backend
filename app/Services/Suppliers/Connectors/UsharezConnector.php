@@ -6,6 +6,7 @@ use App\Order;
 use App\ProductsVariation;
 use App\Services\Suppliers\Contracts\HasCreditLine;
 use App\Services\Suppliers\Contracts\PartialCatalogAware;
+use App\Services\Suppliers\Contracts\ParksBeforeWrite;
 use App\Services\Suppliers\Contracts\SupplierConnector;
 use App\Services\Suppliers\ExchangeRate;
 use App\Services\Suppliers\SupplierApiException;
@@ -41,7 +42,7 @@ use Illuminate\Support\Facades\Log;
  * text to 1323, written to orders.code. Gift purchases are still synchronous, so
  * placeOrder returns them terminal and checkOrder echoes their stored status.
  */
-class UsharezConnector implements SupplierConnector, PartialCatalogAware, HasCreditLine
+class UsharezConnector implements SupplierConnector, PartialCatalogAware, HasCreditLine, ParksBeforeWrite
 {
     public const KEY = 'usharez';
 
@@ -276,7 +277,8 @@ class UsharezConnector implements SupplierConnector, PartialCatalogAware, HasCre
             ]);
 
             return new SupplierOrderResult(
-                externalOrderId: $this->syntheticOrderId($order, []),
+                // Parked, so Supplier health lists it and the stale alarm sees it.
+                externalOrderId: SupplierOrderResult::PARKED_ID_PREFIX . ($order->external_order_uuid ?: $order->id),
                 status: SupplierOrderResult::PENDING,
                 raw: ['usharez_indeterminate' => true, 'error' => $e->getMessage()],
             );

@@ -472,7 +472,7 @@ CREATE TABLE `credits_transfer` (
   KEY `credits_credits_types_id_foreign` (`credits_types_id`),
   KEY `credits_transfer_user_created_index` (`users_id`,`created_at`),
   KEY `credits_transfer_statuses_id_index` (`statuses_id`),
-  CONSTRAINT `credits_credits_types_id_foreign` FOREIGN KEY (`credits_types_id`) REFERENCES `credits_types` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `credits_credits_types_id_foreign` FOREIGN KEY (`credits_types_id`) REFERENCES `credits_types` (`id`) ON DELETE RESTRICT,
   CONSTRAINT `credits_transfer_statuses_id_foreign` FOREIGN KEY (`statuses_id`) REFERENCES `statuses` (`id`),
   CONSTRAINT `credits_users_id_foreign` FOREIGN KEY (`users_id`) REFERENCES `users` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=31 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
@@ -856,6 +856,7 @@ CREATE TABLE `orders` (
   `updated_at` timestamp NULL DEFAULT NULL,
   `deleted_at` timestamp NULL DEFAULT NULL,
   `client_order_id` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
+  `last_polled_at` timestamp NULL DEFAULT NULL,
   `source` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT 'storefront',
   PRIMARY KEY (`id`),
   UNIQUE KEY `orders_external_order_uuid_unique` (`external_order_uuid`),

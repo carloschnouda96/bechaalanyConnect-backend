@@ -5,6 +5,7 @@ namespace App\Services\Suppliers\Connectors;
 use App\Order;
 use App\ProductsVariation;
 use App\Services\Suppliers\Contracts\PartialCatalogAware;
+use App\Services\Suppliers\Contracts\ParksBeforeWrite;
 use App\Services\Suppliers\Contracts\SupplierConnector;
 use App\Services\Suppliers\ExchangeRate;
 use App\Services\Suppliers\SupplierApiException;
@@ -39,7 +40,7 @@ use Illuminate\Support\Facades\Log;
  *
  * Prices arrive in LBP; unitCost is divided by the shared platform rate.
  */
-class UmanageConnector implements SupplierConnector, PartialCatalogAware
+class UmanageConnector implements SupplierConnector, PartialCatalogAware, ParksBeforeWrite
 {
     public const KEY = 'umanage';
 
@@ -422,7 +423,8 @@ class UmanageConnector implements SupplierConnector, PartialCatalogAware
             ]);
 
             return new SupplierOrderResult(
-                externalOrderId: $this->syntheticOrderId($order, $family),
+                // Parked, so Supplier health lists it and the stale alarm sees it.
+                externalOrderId: SupplierOrderResult::PARKED_ID_PREFIX . ($order->external_order_uuid ?: $order->id),
                 status: SupplierOrderResult::PENDING,
                 raw: ['umanage_indeterminate' => true, 'error' => $e->getMessage()],
             );

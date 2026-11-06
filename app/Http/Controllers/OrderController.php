@@ -30,7 +30,7 @@ class OrderController extends Controller
     public function getUserOrders(Request $request)
     {
         $page = $request->get('page', 1);
-        $limit = $request->get('limit', 10);
+        $limit = min(100, max(1, (int) $request->get('limit', 10)));
 
         $orders = Order::where('users_id', auth()->id())
             ->with([

@@ -54,10 +54,10 @@ class CatalogImportController extends Controller
 
             // Excel will not read UTF-8 without the BOM, and this file is half Arabic.
             fwrite($out, "\xEF\xBB\xBF");
-            fputcsv($out, $header, ',', '"', '');
+            fwrite($out, CatalogCsv::line($header) . "\n");
 
             foreach (CatalogCsv::rows() as $row) {
-                fputcsv($out, array_map(fn ($column) => $row[$column] ?? null, $header), ',', '"', '');
+                fwrite($out, CatalogCsv::line(array_map(fn ($column) => $row[$column] ?? null, $header)) . "\n");
             }
 
             fclose($out);

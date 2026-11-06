@@ -7,6 +7,7 @@ use App\Product;
 use App\ProductsVariation;
 use App\Services\PerfectPanel\PerfectPanelClient;
 use App\Services\PerfectPanel\PerfectPanelServicePage;
+use App\Services\Suppliers\Contracts\ParksBeforeWrite;
 use App\Services\Suppliers\Contracts\SupplierConnector;
 use App\Services\Suppliers\SupplierIndeterminateException;
 use App\Services\Suppliers\SupplierOrderResult;
@@ -40,10 +41,10 @@ use Illuminate\Support\Str;
  * The API carries no description or delivery time, so a panel may opt in to
  * reading them from its public /services page (serviceDetails()).
  */
-abstract class PerfectPanelConnector implements SupplierConnector
+abstract class PerfectPanelConnector implements SupplierConnector, ParksBeforeWrite
 {
     /** Marks an order whose add outcome is unknown: not a panel order id, so never polled. */
-    private const PARKED_ID_PREFIX = 'parked-';
+    private const PARKED_ID_PREFIX = SupplierOrderResult::PARKED_ID_PREFIX;
 
     private ?PerfectPanelClient $client = null;
 
@@ -94,7 +95,7 @@ abstract class PerfectPanelConnector implements SupplierConnector
 
             $out[] = new SupplierProduct(
                 externalId: $externalId,
-                name: $this->displayName(trim((string) ($raw['name'] ?? ('Service ' . $externalId)))),
+                name: $this->displayName(trim((string) ($raw['name'] ?? 'Service'))),
                 // No category id in Perfect Panel — group by a slug of the name.
                 categoryExternalId: Str::slug($category) ?: 'uncategorized',
                 categoryName: $category,
@@ -124,6 +125,11 @@ abstract class PerfectPanelConnector implements SupplierConnector
                 (string) $order->recipient_user,
                 (int) $order->quantity,
             );
+
+            // A 200 with no order id says nothing about whether it was bought.
+            if (!isset($response['order'])) {
+                throw new SupplierIndeterminateException('add returned no order id');
+            }
         } catch (SupplierIndeterminateException $e) {
             // Never refund and never re-send: park it PENDING for a human, who rejects it in
             // the CMS to refund if the panel shows no such order. The id keeps fulfill() from
@@ -142,7 +148,7 @@ abstract class PerfectPanelConnector implements SupplierConnector
         }
 
         return new SupplierOrderResult(
-            externalOrderId: isset($response['order']) ? (string) $response['order'] : null,
+            externalOrderId: (string) $response['order'],
             status: SupplierOrderResult::PENDING,
             raw: $response,
         );

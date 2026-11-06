@@ -8,6 +8,7 @@ use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Validation\Rule;
 use Illuminate\Validation\ValidationException;
+use App\Support\CmsDraftFlag;
 use Hellotreedigital\Cms\Controllers\CmsPageController;
 use App\Http\Controllers\Controller;
 use App\Http\Controllers\NotificationController;
@@ -18,6 +19,7 @@ use App\CreditLedgerEntry;
 use App\Services\Credits\CreditLedger;
 use App\Services\Credits\DuplicateLedgerEntryException;
 use App\Services\Credits\InsufficientCreditsException;
+use App\Services\Credits\StatusChangeRefusedException;
 use App\Services\Credits\StatusChangeOutcome;
 use App\Services\Credits\SupplierFailedOrderException;
 use App\Services\Reseller\OrderWebhooks;
@@ -73,11 +75,14 @@ class OrdersController extends Controller
             ])],
         ]);
 
+        // The vendor's draft flag skips its validation and nulls any field left out.
+        CmsDraftFlag::strip($request);
+
         $redirect = $this->cmsPageController->update($request, $id, 'orders', 'App\Order', self::class);
 
         try {
             $outcome = $this->applyStatusChange((int) $id);
-        } catch (InsufficientCreditsException|SupplierFailedOrderException $e) {
+        } catch (InsufficientCreditsException|SupplierFailedOrderException|StatusChangeRefusedException $e) {
             // Undo the vendor's status write: the ledger is still settled at the old
             // status, so leaving the new one would desynchronise them.
             Order::withoutGlobalScope('cms_draft_flag')
@@ -92,7 +97,7 @@ class OrdersController extends Controller
         // rather than by $request->statuses_id. Previously a failing mail server or a
         // slow supplier call sat inside the same request as the money movement.
         if ($outcome && $outcome->shouldFulfill) {
-            FulfillSupplierOrderJob::dispatch((int) $id);
+            $this->dispatchFulfillment((int) $id);
         }
 
         if ($outcome) {
@@ -171,7 +176,7 @@ class OrdersController extends Controller
                 }
 
                 $applied++;
-            } catch (InsufficientCreditsException|SupplierFailedOrderException $e) {
+            } catch (InsufficientCreditsException|SupplierFailedOrderException|StatusChangeRefusedException $e) {
                 // Put this one back and keep going.
                 Order::withoutGlobalScope('cms_draft_flag')
                     ->where('id', $id)
@@ -183,7 +188,7 @@ class OrdersController extends Controller
 
         // Dispatched after every transaction has committed.
         foreach ($toFulfill as $id) {
-            FulfillSupplierOrderJob::dispatch($id);
+            $this->dispatchFulfillment($id);
         }
 
         // Same rule for the customer-facing side effects: a bulk approve of N orders
@@ -194,6 +199,23 @@ class OrdersController extends Controller
         }
 
         return back()->with('success', $this->bulkSummary($applied, $unchanged, $failures));
+    }
+
+    /**
+     * The money has already moved. With the sync queue driver a supplier error surfaces
+     * here, and one bad order must not strand the rest of a bulk run. external_source is
+     * already set, so Supplier health lists this order for a retry.
+     */
+    private function dispatchFulfillment(int $id): void
+    {
+        try {
+            FulfillSupplierOrderJob::dispatch($id);
+        } catch (\Throwable $e) {
+            Log::critical('Supplier fulfillment could not start; order stays approved and unplaced', [
+                'order_id' => $id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /** One human sentence describing what a bulk run actually did. */
@@ -271,11 +293,31 @@ class OrdersController extends Controller
                     throw new SupplierFailedOrderException($applied);
                 }
 
-                $user = User::where('id', $order->users_id)->lockForUpdate()->first();
+                // The supplier delivered it and the code is readable, so a refund would
+                // give the goods away. An order still pending at the supplier stays
+                // rejectable: that is how staff resolve a parked order. A goodwill refund
+                // belongs on the user balance page, which records a reason.
+                if ($order->external_status === SupplierOrderResult::COMPLETED
+                    && $applied !== Order::STATUS_REJECTED
+                    && $current === Order::STATUS_REJECTED) {
+                    throw new StatusChangeRefusedException($applied, 'The supplier already delivered this order, so it cannot be rejected. For a goodwill refund, adjust the balance on the user page.');
+                }
+
+                // A soft-deleted customer still has a balance: the ledger moves on that
+                // row, so restoring the account restores the right figure.
+                $user = User::withTrashed()->where('id', $order->users_id)->lockForUpdate()->first();
+
+                // An approval on a deleted account would charge or credit someone who can
+                // no longer see it, and a supplier order would never be placed. Rejecting
+                // still works, so the money can always go back.
+                if ($user && $user->trashed() && $current === Order::STATUS_APPROVED && $applied !== Order::STATUS_APPROVED) {
+                    throw new StatusChangeRefusedException($applied, 'This customer\'s account is deleted. Restore it from Deleted records before approving, or reject this record.');
+                }
 
                 if (!$user) {
                     // Orphaned order (orders.users_id is nullable and unenforced).
                     // Record that the status moved so we do not retry every save.
+                    Log::warning('Order status settled with no owner row; no money moved', ['order_id' => $order->id]);
                     $order->credits_applied_status = $current;
                     $order->saveQuietly();
 
@@ -310,6 +352,20 @@ class OrdersController extends Controller
                     ]);
                 }
 
+                // Fulfil only on a genuine transition INTO approved, and only for
+                // a supplier order that has not already been placed.
+                $shouldFulfill = $current === Order::STATUS_APPROVED
+                    && $applied !== Order::STATUS_APPROVED
+                    && blank($order->external_order_id)
+                    && !$user->trashed()
+                    && SupplierOrderFulfillment::isExternal($order);
+
+                // Set now, not when the job runs: it is what puts an order that never gets
+                // placed on the Supplier health list.
+                if ($shouldFulfill) {
+                    $order->external_source = SupplierOrderFulfillment::sourceOf($order);
+                }
+
                 $order->credits_applied_status = $current;
                 $order->saveQuietly();
 
@@ -317,12 +373,7 @@ class OrdersController extends Controller
                     from: $applied,
                     to: $current,
                     delta: $delta,
-                    // Fulfil only on a genuine transition INTO approved, and only for
-                    // a supplier order that has not already been placed.
-                    shouldFulfill: $current === Order::STATUS_APPROVED
-                        && $applied !== Order::STATUS_APPROVED
-                        && blank($order->external_order_id)
-                        && SupplierOrderFulfillment::isExternal($order),
+                    shouldFulfill: $shouldFulfill,
                 );
             }, 3); // retry on deadlock
         } catch (DuplicateLedgerEntryException $e) {

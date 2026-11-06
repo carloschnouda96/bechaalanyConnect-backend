@@ -59,7 +59,8 @@ return [
 	    	'asset?path=js/vfs_fonts.js',
 	    	'asset?path=js/buttons.html5.min.js',
 	    	'asset?path=js/select2.min.js',
-	    	'https://cdn.ckeditor.com/4.6.2/standard-all/ckeditor.js',
+	    	// CKEditor 4.22.1 from the ckeditor4 npm package, plugins for third-party services removed.
+	    	'cms-assets/ckeditor/ckeditor.js',
 	    	'cms-assets/js/main.js',
 	    ],
     ],
