@@ -18,9 +18,8 @@ return new class extends Migration
      * user_types_id, the KYC fields, deleted_at, …). Running it against an empty
      * database would produce a schema the application cannot work with.
      *
-     * The bootstrap source of truth is database/dumps/schema.sql, applied by
-     * `php artisan test:prepare-db`; this file is kept only so the migration history
-     * stays contiguous. Guarded so it is a no-op wherever `users` already exists —
+     * The bootstrap source of truth is database/dumps/schema.sql; this file is kept
+     * only so the migration history stays contiguous. Guarded so it is a no-op wherever `users` already exists —
      * which, given the dump, is everywhere.
      */
     public function up(): void
