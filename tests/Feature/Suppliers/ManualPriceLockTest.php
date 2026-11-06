@@ -60,6 +60,30 @@ class ManualPriceLockTest extends TestCase
         $this->assertTrue((bool) $variation->manual_price);
     }
 
+    public function test_a_locked_price_is_held_off_sale_rather_than_rescaled_per_1000(): void
+    {
+        $connector = $this->connector([$this->dto('1', 'Bundle One', 8.0)]);
+        $this->enableCategory($connector);
+        (new SupplierCatalogSync())->sync($connector);
+
+        $product = $this->product();
+        $variation = $this->variation($product);
+        $variation->price = 12.00;
+        $variation->save();
+        $this->assertTrue((bool) $variation->fresh()->manual_price);
+
+        // The admin-owned type moves to Social Media, which sells per 1,000.
+        $product->product_type_id = Product::TYPE_SOCIAL;
+        $product->save();
+
+        (new SupplierCatalogSync())->sync($connector);
+
+        $fresh = $variation->fresh();
+        $this->assertEmpty($fresh->unit_amount, 'the unit must not change under an owned price');
+        $this->assertEqualsWithDelta(12.00, (float) $fresh->price, 0.001);
+        $this->assertSame(Product::SUPPLIER_OUT_OF_STOCK, $fresh->supplier_status);
+    }
+
     public function test_profit_percentage_edit_reprices_and_unlocks_only_that_variation(): void
     {
         $connector = $this->connector([

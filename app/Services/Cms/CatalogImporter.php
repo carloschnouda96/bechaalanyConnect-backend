@@ -114,6 +114,16 @@ class CatalogImporter
 
         $creatingProduct = !$product && !isset($pendingProducts[$productSlug]);
 
+        // The sync and the editor only produce URL-safe slugs. Anything else from a file ends
+        // up in a public URL and, starting with = or +, as a formula in the next export.
+        foreach (['product_slug' => $productSlug, 'variation_slug' => $variationSlug] as $column => $slug) {
+            if ($slug !== '' && !preg_match('/^[\pL\pN][\pL\pN_-]*$/u', $slug)) {
+                $entry['reason'] = "{$column} may only contain letters, numbers, hyphens and underscores.";
+
+                return $entry;
+            }
+        }
+
         // Resolve the placement before deciding anything, so a bad slug is an error on
         // this row rather than a half-applied product later.
         $subcategoryId = null;
@@ -138,6 +148,27 @@ class CatalogImporter
             return $entry;
         }
 
+        // Resolved whether or not the product exists yet. It used to be looked up only for
+        // an existing product, so naming a new slug skipped both checks below, and apply
+        // then found the row by slug, moved it to the new product and overwrote its price.
+        $variation = $variationSlug !== ''
+            ? ProductsVariation::withoutGlobalScope('cms_draft_flag')->where('slug', $variationSlug)->first()
+            : null;
+
+        if ($variation && (filled($variation->external_id) || filled($variation->supplierSource()))) {
+            $entry['action'] = self::SKIPPED;
+            $entry['reason'] = 'Variation is supplier-imported — its price is derived from cost × profit %.';
+
+            return $entry;
+        }
+
+        if ($variation && (!$product || (int) $variation->product_id !== (int) $product->id)) {
+            $entry['action'] = self::SKIPPED;
+            $entry['reason'] = 'Variation "' . $variationSlug . '" belongs to another product.';
+
+            return $entry;
+        }
+
         $changes = [];
 
         if ($creatingProduct) {
@@ -153,19 +184,6 @@ class CatalogImporter
         }
 
         if ($variationSlug !== '') {
-            $variation = $product
-                ? ProductsVariation::withoutGlobalScope('cms_draft_flag')
-                    ->where('slug', $variationSlug)
-                    ->first()
-                : null;
-
-            if ($variation && filled($variation->external_id)) {
-                $entry['action'] = self::SKIPPED;
-                $entry['reason'] = 'Variation is supplier-imported — its price is derived from cost × profit %.';
-
-                return $entry;
-            }
-
             if (!$variation) {
                 $changes['variation'] = ['(new variation)' => [null, $variationSlug]];
             } else {

@@ -33,6 +33,20 @@ class FakeBycelLedger extends BycelPurchaseLedger
         $this->purchase = $existing;
     }
 
+    public bool $olderOpenIntent = false;
+
+    public bool $anyPurchase = false;
+
+    public function hasOlderOpenIntent(BycelPurchase $purchase): bool
+    {
+        return $this->olderOpenIntent;
+    }
+
+    public function hasAnyPurchase(): bool
+    {
+        return $this->anyPurchase;
+    }
+
     public function findByOrderUuid(?string $uuid): ?BycelPurchase
     {
         return $this->purchase && $this->purchase->order_uuid === $uuid ? $this->purchase : null;
@@ -85,6 +99,16 @@ class FakeBycelLedger extends BycelPurchaseLedger
         $purchase->merchant_purchase_id = $merchantPurchaseId;
         $purchase->state = BycelPurchase::STATE_CLAIMED;
         $this->claimed[] = $merchantPurchaseId;
+    }
+
+    public function holdsClaim(BycelPurchase $purchase): bool
+    {
+        return false;
+    }
+
+    public function markDelivered(BycelPurchase $purchase): void
+    {
+        $purchase->state = BycelPurchase::STATE_DELIVERED;
     }
 
     public function markFailed(BycelPurchase $purchase, string $reason): void

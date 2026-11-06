@@ -103,6 +103,7 @@ class KycQueueTest extends TestCase
 
         $this->actingAs($this->admin(), 'admin')
             ->put($this->url('/' . $applicant->id), [
+                'reviewed_fingerprint' => \App\Http\Controllers\Cms\KycController::fingerprint($applicant),
                 'verification_statuses_id' => User::VERIFICATION_REJECTED,
                 'rejection_reason' => '',
             ])
@@ -118,6 +119,7 @@ class KycQueueTest extends TestCase
 
         $this->actingAs($this->admin(), 'admin')
             ->put($this->url('/' . $applicant->id), [
+                'reviewed_fingerprint' => \App\Http\Controllers\Cms\KycController::fingerprint($applicant),
                 'verification_statuses_id' => User::VERIFICATION_REJECTED,
                 'rejection_reason' => 'The back of the ID is cut off.',
             ])
@@ -136,6 +138,7 @@ class KycQueueTest extends TestCase
 
         $this->actingAs($this->admin(), 'admin')
             ->put($this->url('/' . $applicant->id), [
+                'reviewed_fingerprint' => \App\Http\Controllers\Cms\KycController::fingerprint($applicant),
                 'verification_statuses_id' => User::VERIFICATION_APPROVED,
             ])
             ->assertRedirect();

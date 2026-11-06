@@ -10,6 +10,7 @@ use App\ProductsVariation;
 use App\Services\Credits\CreditLedger;
 use App\Services\Credits\DuplicateLedgerEntryException;
 use App\Services\Reseller\OrderWebhooks;
+use App\Services\Suppliers\Contracts\ParksBeforeWrite;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -33,6 +34,15 @@ class SupplierOrderFulfillment
 
     public function __construct(private SupplierRegistry $registry)
     {
+    }
+
+    /** The supplier that owns this order's variation, whether or not it was placed yet. */
+    public static function sourceOf(Order $order): ?string
+    {
+        return ProductsVariation::withoutGlobalScope('cms_draft_flag')
+            ->with(['product' => fn ($q) => $q->withoutGlobalScope('cms_draft_flag')])
+            ->find($order->product_variation_id)
+            ?->supplierSource();
     }
 
     /** Whether this local order is for a product from a registered supplier. */
@@ -101,11 +111,25 @@ class SupplierOrderFulfillment
             $order->external_order_uuid = (string) Str::uuid();
         }
         $order->external_source = $source;
+
+        $parked = $connector instanceof ParksBeforeWrite;
+        if ($parked) {
+            $order->external_order_id = SupplierOrderResult::PARKED_ID_PREFIX . $order->external_order_uuid;
+            $order->external_status = SupplierOrderResult::PENDING;
+        }
         $order->save();
 
         try {
             $result = $connector->placeOrder($order, $variation);
         } catch (SupplierApiException $e) {
+            // A definite refusal: nothing was bought, so a retry may send it. Anything else
+            // leaves the parked id in place, because the request may have gone through.
+            if ($parked) {
+                $order->external_order_id = null;
+                $order->external_status = null;
+                $order->save();
+            }
+
             Log::error('Supplier placeOrder failed', [
                 'order_id' => $order->id,
                 'source' => $source,
@@ -136,7 +160,11 @@ class SupplierOrderFulfillment
 
         $result = $connector->checkOrder($order);
         $previous = $order->external_status;
-        $order->external_status = $result->status ?: $order->external_status;
+        // Delivered stays delivered. Back to pending would remove the guard that refuses
+        // rejecting (and refunding) an order the customer already received.
+        if (!($previous === SupplierOrderResult::COMPLETED && $result->status === SupplierOrderResult::PENDING)) {
+            $order->external_status = $result->status ?: $order->external_status;
+        }
         $order->external_response = $result->raw;
         $order->save();
 
@@ -186,7 +214,12 @@ class SupplierOrderFulfillment
                 return null;
             }
 
-            $user = User::where('id', $locked->users_id)->lockForUpdate()->first();
+            // An admin can have set this Approved after it was rejected and refunded, and the
+            // ledger has not settled that yet. The money is already back, so only the status
+            // moves. A NULL applied status reads as Pending, meaning held.
+            $alreadyRefunded = (int) $locked->credits_applied_status === Order::STATUS_REJECTED;
+
+            $user = $alreadyRefunded ? null : User::withTrashed()->where('id', $locked->users_id)->lockForUpdate()->first();
             if ($user) {
                 // Through the ledger rather than `$user->credits_balance += …`:
                 // that was float arithmetic with no audit record, so a supplier

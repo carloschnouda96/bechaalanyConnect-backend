@@ -209,7 +209,7 @@ Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function 
      | what dragged the whole price table for every product into this response.
      */
     Route::get('/user/profile', function (Request $request) {
-        $user = $request->user()->loadMissing('user_types');
+        $user = $request->user()->loadMissing('user_types')->loadRecentActivity();
 
         return response()->json([
             'user' => $user,
@@ -237,7 +237,7 @@ Route::middleware('auth:sanctum', 'locale')->prefix('{locale}')->group(function 
     Route::put('/user/update', [SessionController::class, 'updateProfile']);
 
     //Change User Password
-    Route::put('/change-password', [SessionController::class, 'changePassword']);
+    Route::put('/change-password', [SessionController::class, 'changePassword'])->middleware('throttle:auth');
 });
 
 

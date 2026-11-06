@@ -160,6 +160,7 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
     // A record tied to money must be rejected before it can be deleted.
     Route::delete('/orders/{id}', 'App\Http\Controllers\Cms\GuardedRecordDeleteController@destroyOrders');
     Route::delete('/credits-transfer/{id}', 'App\Http\Controllers\Cms\GuardedRecordDeleteController@destroyTransfers');
+    Route::delete('/credits-types/{id}', 'App\Http\Controllers\Cms\CatalogDeleteController@destroyCreditsType');
 
     // The only way staff change a balance by hand: through the ledger, with a reason.
     Route::get('/users/{id}/balance', 'App\Http\Controllers\Cms\UserBalanceController@show')->whereNumber('id');
@@ -173,6 +174,8 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
     $locked = 'App\Http\Controllers\Cms\LockedCmsActionController@refuse';
     Route::get('/orders/create', $locked)->defaults('page', 'orders');
     Route::post('/orders', $locked)->defaults('page', 'orders');
+    Route::get('/credits-transfer/create', $locked)->defaults('page', 'credits-transfer');
+    Route::post('/credits-transfer', $locked)->defaults('page', 'credits-transfer');
     foreach (['statuses', 'product-type'] as $referencePage) {
         Route::get('/' . $referencePage . '/create', $locked)->defaults('page', $referencePage);
         Route::post('/' . $referencePage, $locked)->defaults('page', $referencePage);

@@ -30,10 +30,14 @@ class WebhookUrlGuard
         '0.0.0.0/8', '10.0.0.0/8', '100.64.0.0/10', '127.0.0.0/8', '169.254.0.0/16',
         '172.16.0.0/12', '192.0.0.0/24', '192.0.2.0/24', '192.168.0.0/16', '198.18.0.0/15',
         '198.51.100.0/24', '203.0.113.0/24', '224.0.0.0/4', '240.0.0.0/4',
+        // 6to4 relays, and the address cloud hosts use for their own platform services.
+        '192.88.99.0/24', '168.63.129.16/32',
     ];
 
     private const BLOCKED_V6 = [
-        '::/128', '::1/128', 'fc00::/7', 'fe80::/10', 'ff00::/8', '2001:db8::/32', '100::/64',
+        '::/96', '::1/128', 'fc00::/7', 'fe80::/10', 'fec0::/10', 'ff00::/8', '2001:db8::/32', '100::/64',
+        // These forms carry or translate to an IPv4 address on a path we cannot judge.
+        '2002::/16', '2001::/32', '64:ff9b:1::/48', '::ffff:0:0:0/96',
     ];
 
     public function __construct(?callable $resolver = null)
@@ -63,6 +67,18 @@ class WebhookUrlGuard
 
         $host = strtolower(trim($parts['host'], '[]'));
         $port = (int) ($parts['port'] ?? 443);
+
+        // Any other port makes the test button a scanner for what answers where.
+        if ($port !== 443) {
+            throw new WebhookUrlRejected('The webhook URL must use the standard https port.');
+        }
+
+        // CURLOPT_RESOLVE silently ignores an entry for a name it cannot parse, such as one
+        // starting with a hyphen, and curl then resolves it itself: the pin is gone.
+        if (!filter_var($host, FILTER_VALIDATE_IP)
+            && !preg_match('/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)*[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$/', $host)) {
+            throw new WebhookUrlRejected('The webhook host is not a valid host name.');
+        }
 
         if ($host === 'localhost' || str_ends_with($host, '.localhost') || str_ends_with($host, '.local') || str_ends_with($host, '.internal')) {
             throw new WebhookUrlRejected('The webhook URL must be a public address.');

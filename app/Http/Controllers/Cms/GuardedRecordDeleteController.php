@@ -28,14 +28,7 @@ class GuardedRecordDeleteController extends Controller
             (string) $id,
             'orders',
             'order',
-            fn (array $ids) => Order::withoutGlobalScope('cms_draft_flag')
-                ->whereIn('id', $ids)
-                ->where(fn ($q) => $q
-                    ->where('statuses_id', '<>', Order::STATUS_REJECTED)
-                    ->orWhereNull('credits_applied_status')
-                    ->orWhere('credits_applied_status', '<>', Order::STATUS_REJECTED))
-                ->pluck('id')
-                ->all(),
+            fn (array $ids) => self::ordersHoldingCredits($ids),
             'still holds the customer\'s credits, so reject it first to refund them'
         );
     }
@@ -46,15 +39,34 @@ class GuardedRecordDeleteController extends Controller
             (string) $id,
             'credits-transfer',
             'top-up',
-            fn (array $ids) => CreditsTransfer::withoutGlobalScope('cms_draft_flag')
-                ->whereIn('id', $ids)
-                ->where(fn ($q) => $q
-                    ->where('statuses_id', CreditsTransfer::STATUS_APPROVED)
-                    ->orWhere('credits_applied_status', CreditsTransfer::STATUS_APPROVED))
-                ->pluck('id')
-                ->all(),
+            fn (array $ids) => self::transfersHoldingCredits($ids),
             'has credited the customer, so reject it first to take the credits back'
         );
+    }
+
+    /** @return int[] Soft-deleted rows included: Deleted records asks the same question. */
+    public static function ordersHoldingCredits(array $ids): array
+    {
+        return Order::withTrashed()->withoutGlobalScope('cms_draft_flag')
+            ->whereIn('id', $ids)
+            ->where(fn ($q) => $q
+                ->where('statuses_id', '<>', Order::STATUS_REJECTED)
+                ->orWhereNull('credits_applied_status')
+                ->orWhere('credits_applied_status', '<>', Order::STATUS_REJECTED))
+            ->pluck('id')
+            ->all();
+    }
+
+    /** @return int[] */
+    public static function transfersHoldingCredits(array $ids): array
+    {
+        return CreditsTransfer::withTrashed()->withoutGlobalScope('cms_draft_flag')
+            ->whereIn('id', $ids)
+            ->where(fn ($q) => $q
+                ->where('statuses_id', CreditsTransfer::STATUS_APPROVED)
+                ->orWhere('credits_applied_status', CreditsTransfer::STATUS_APPROVED))
+            ->pluck('id')
+            ->all();
     }
 
     private function guard(string $id, string $route, string $label, callable $held, string $why)

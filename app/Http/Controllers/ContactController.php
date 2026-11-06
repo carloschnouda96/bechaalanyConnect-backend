@@ -35,11 +35,12 @@ class ContactController extends Controller
         $admin_email = FixedSetting::adminEmail();
 
         $request->validate([
-            'name' => 'required',
-            'email' => 'required|email',
-            'phone' => 'required',
-            'subject' => 'required',
-            'message' => 'required'
+            'name' => ['required', 'string', 'max:191'],
+            'email' => ['required', 'email', 'max:191'],
+            'phone' => ['required', 'string', 'max:32'],
+            // Becomes the mail subject.
+            'subject' => ['required', 'string', 'max:191', 'not_regex:/[\r\n]/'],
+            'message' => ['required', 'string', 'max:5000'],
         ]);
 
         $contact_form = new ContactFormRequest();
@@ -54,9 +55,16 @@ class ContactController extends Controller
         // turned that into a 500 after the row was already saved, and no mail went out.
         $requestedLocale = app()->getLocale();
 
-        Mail::send('emails.contact-request', compact('contact_form', 'requestedLocale'), function ($message) use ($contact_form, $admin_email) {
-            $message->to($admin_email)->subject($contact_form->subject);
-        });
+        // The request is saved; a mail problem must not tell the visitor it failed.
+        try {
+            if (filled($admin_email)) {
+                Mail::send('emails.contact-request', compact('contact_form', 'requestedLocale'), function ($message) use ($contact_form, $admin_email) {
+                    $message->to($admin_email)->subject($contact_form->subject);
+                });
+            }
+        } catch (\Exception $e) {
+            \Illuminate\Support\Facades\Log::error('Contact request mail failed', ['exception' => $e]);
+        }
 
         return response()->json([
             'message' => __('api.contact.submitted')

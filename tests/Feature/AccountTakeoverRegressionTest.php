@@ -35,14 +35,16 @@ class AccountTakeoverRegressionTest extends TestCase
         Mail::fake();
         $email = 'victim_' . uniqid() . '@example.test';
 
-        $this->postJson('/api/register', [
-            'username' => 'attacker1',
+        // An unverified row from before sign-ups were held in the cache.
+        $preRegistered = User::create([
+            'username' => 'attacker1' . uniqid(),
             'email' => $email,
-            'password' => 'Attacker123',
-            'password_confirmation' => 'Attacker123',
-        ])->assertCreated();
-
-        $preRegistered = User::where('email', $email)->firstOrFail();
+            'password' => bcrypt('Attacker123'),
+            'email_verified' => 0,
+            'verification_token' => 'planted-link',
+            'account_verification_code' => 123456,
+            'verification_statuses_id' => User::VERIFICATION_UNSUBMITTED,
+        ]);
         $staleToken = $preRegistered->createToken('planted')->plainTextToken;
 
         $this->fakeGoogle($email);

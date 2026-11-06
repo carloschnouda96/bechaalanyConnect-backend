@@ -14,10 +14,15 @@
 
 @php
     $prefix = config('hellotree.cms_route_prefix');
-    $metrics = app(\App\Services\Cms\DashboardMetrics::class)->all();
-    $queues = $metrics['queues'] ?? [];
-    $revenue = $metrics['revenue'] ?? [];
-    $health = $metrics['health'] ?? [];
+    // This page is exempt from the page rights, so each figure is checked against the
+    // right for the page it comes from. A section the role cannot browse is left out,
+    // never shown as a misleading zero.
+    $cmsPages = request()->get('admin')['cms_pages'] ?? [];
+    $can = fn ($page) => !empty($cmsPages[$page]['permissions']['browse']);
+    $dashboard = app(\App\Services\Cms\DashboardMetrics::class);
+    $queues = ($can('orders') || $can('credits-transfer') || $can('kyc-queue')) ? $dashboard->queues() : [];
+    $revenue = $can('orders') ? $dashboard->revenue() : [];
+    $health = $can('supplier-health') ? $dashboard->health() : [];
     $money = fn ($v) => '$' . number_format((float) $v, 2);
 @endphp
 
@@ -26,6 +31,7 @@
     <div class="mx-2 mx-lg-5">
 
         {{-- Work waiting on a human. Each tile links straight into its queue. --}}
+        @if ($can('orders') || $can('credits-transfer') || $can('kyc-queue'))
         <h5 class="font-weight-bold mt-4 mb-3">Needs attention</h5>
         <div class="row">
             @php
@@ -37,6 +43,7 @@
             @endphp
 
             @foreach ($waiting as $tile)
+                @continue(!$can(trim(substr($tile['url'], strlen($prefix)), '/')))
                 <div class="col-12 col-md-4 mb-3">
                     <a href="{{ url($tile['url']) }}" class="text-decoration-none">
                         <div class="card h-100 py-4 px-3 text-center">
@@ -52,6 +59,9 @@
             @endforeach
         </div>
 
+        @endif
+
+        @if ($can('orders'))
         {{-- Revenue and profit. Only trustworthy since orders.total_price became
              DECIMAL: as LONGTEXT, MySQL silently coerced bad rows to 0 inside SUM(). --}}
         <h5 class="font-weight-bold mt-4 mb-3">Sales</h5>
@@ -69,6 +79,9 @@
             @endforeach
         </div>
 
+        @endif
+
+        @if ($can('supplier-health'))
         {{-- Conditions that are silently wrong. Every one of these was previously
              invisible until a customer complained. --}}
         <h5 class="font-weight-bold mt-4 mb-3">System health</h5>
@@ -140,6 +153,7 @@
                 </div>
             </div>
         </div>
+        @endif
 
     </div>
 

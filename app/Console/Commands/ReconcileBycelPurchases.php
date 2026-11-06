@@ -14,9 +14,8 @@ use Illuminate\Console\Command;
  * An intent is left open when the PIN had not materialised in time, when a POST
  * was indeterminate (dropped connection), or when the process died mid-purchase.
  * Re-running the resolver against the persisted watermark either claims the row —
- * delivering the customer's code late but correctly — or, once a LATER intent has
- * closed the window and a coverage-proven report still shows nothing, proves the
- * purchase never happened so the order can be refunded.
+ * delivering the customer's code late but correctly — or sends it to Supplier health.
+ * Only a definite refusal from Bycel refunds automatically.
  *
  * Reports by default; only touches orders with --auto-fail, because the refund it
  * can trigger is irreversible.

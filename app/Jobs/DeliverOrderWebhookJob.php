@@ -46,6 +46,10 @@ class DeliverOrderWebhookJob implements ShouldQueue
         // Never before the status change that produced this event has committed
         // (see FulfillSupplierOrderJob for why this is a call, not a property).
         $this->afterCommit();
+
+        // Its own queue, so a reseller's stalling endpoint cannot hold up other customers'
+        // fulfillment. Every worker has to drain it: see CronController::queueWork.
+        $this->onQueue('webhooks');
     }
 
     /** Seconds before attempts 2..8: 30s, 2m, 10m, 30m, 1h, 2h, 4h. */
@@ -76,7 +80,8 @@ class DeliverOrderWebhookJob implements ShouldQueue
 
             return;
         } catch (\Illuminate\Http\Client\ConnectionException $e) {
-            $webhook->recordDelivery(null, 'Connection failed: ' . $e->getMessage());
+            // The transport text can describe the reseller's network, or ours.
+            $webhook->recordDelivery(null, 'Connection failed.');
 
             throw $e;
         }

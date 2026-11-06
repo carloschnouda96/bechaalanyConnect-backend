@@ -6,6 +6,7 @@ use App\ApiKey;
 use App\ApiWebhook;
 use App\Models\User;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\RateLimiter;
 
 /**
  * What a password change or reset must cancel beyond the password itself.
@@ -18,6 +19,22 @@ use Illuminate\Support\Facades\Cache;
  */
 class CredentialRevocation
 {
+    /** Per account and source. A shared count would let strangers lock the owner out. */
+    public const LOGIN_FAILURES_PER_HOUR = 30;
+
+    /** Across all sources this only raises a signal: nothing may refuse the owner on it. */
+    public const LOGIN_FAILURE_ALERT_THRESHOLD = 300;
+
+    public static function loginFailureKey(string $email, string $ip): string
+    {
+        return 'login-failures:' . sha1(strtolower(trim($email)) . '|' . $ip);
+    }
+
+    public static function loginFailureSignalKey(string $email): string
+    {
+        return 'login-failure-signal:' . sha1(strtolower(trim($email)));
+    }
+
     public static function resetCooldownKey(string $email): string
     {
         return 'password-reset:recent:' . sha1(strtolower(trim($email)));
@@ -31,6 +48,7 @@ class CredentialRevocation
     {
         $user->forceFill(['password_reset_token' => null])->save();
         Cache::forget(self::resetCooldownKey($user->email));
+        RateLimiter::clear(self::loginFailureSignalKey($user->email));
 
         $keys = ApiKey::where('user_id', $user->id)->whereNull('revoked_at')->update(['revoked_at' => now()]);
         $webhooks = ApiWebhook::where('user_id', $user->id)->delete();

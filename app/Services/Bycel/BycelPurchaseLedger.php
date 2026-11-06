@@ -177,6 +177,19 @@ class BycelPurchaseLedger
      * Park the intent for human review, keeping the candidate rows (PINs redacted)
      * so the CMS can show an admin what it could not decide between.
      */
+    public function markDelivered(BycelPurchase $purchase): void
+    {
+        BycelPurchase::where('id', $purchase->id)
+            ->where('state', BycelPurchase::STATE_SENT)
+            ->update(['state' => BycelPurchase::STATE_DELIVERED]);
+        $purchase->state = BycelPurchase::STATE_DELIVERED;
+    }
+
+    public function holdsClaim(BycelPurchase $purchase): bool
+    {
+        return BycelPurchase::whereKey($purchase->id)->whereNotNull('merchant_purchase_id')->exists();
+    }
+
     public function markAmbiguous(BycelPurchase $purchase, array $candidates): void
     {
         $rows = [];
@@ -192,14 +205,16 @@ class BycelPurchaseLedger
             $rows[] = $redacted;
         }
 
-        $purchase->report_row = ['candidates' => $rows];
-        $purchase->save();
-
-        $this->markState(
-            $purchase,
-            BycelPurchase::STATE_AMBIGUOUS,
-            'candidates: ' . implode(',', array_filter($ids))
-        );
+        // Conditional in SQL: a poll holding a stale copy must not undo a claim made meanwhile.
+        BycelPurchase::whereKey($purchase->id)
+            ->whereNull('merchant_purchase_id')
+            ->whereIn('state', [BycelPurchase::STATE_SENT, BycelPurchase::STATE_AMBIGUOUS])
+            ->update([
+                'state' => BycelPurchase::STATE_AMBIGUOUS,
+                'report_row' => json_encode(['candidates' => $rows]),
+                'resolver_reason' => mb_substr('candidates: ' . implode(',', array_filter($ids)), 0, 191),
+            ]);
+        $purchase->refresh();
     }
 
     /** The candidate rows recorded when the claim was refused. */
@@ -226,9 +241,44 @@ class BycelPurchaseLedger
      * search window: our purchase, if any, sits in (watermark_id, thisValue].
      * Null means no later intent exists yet, so the window is still open-ended.
      */
+    public function hasAnyPurchase(): bool
+    {
+        // A refused purchase bought nothing, so it says nothing about the report being empty.
+        return BycelPurchase::where('state', '!=', BycelPurchase::STATE_FAILED)->exists();
+    }
+
+    /**
+     * An earlier purchase still waiting for its row. Report rows can lag, so a row above our
+     * watermark may be that purchase's, and it cannot be told apart from ours.
+     */
+    public function hasOlderOpenIntent(BycelPurchase $purchase): bool
+    {
+        return BycelPurchase::where('id', '!=', $purchase->id)
+            ->whereIn('state', [BycelPurchase::STATE_SENT, BycelPurchase::STATE_AMBIGUOUS])
+            ->whereNull('merchant_purchase_id')
+            // Not narrowed by product: rows are matched on price and face value, so another
+            // product at the same price can own this row.
+            ->where(function ($q) use ($purchase) {
+                $q->where('request_at', '<', $purchase->request_at)
+                    ->orWhere(function ($q) use ($purchase) {
+                        $q->where('request_at', $purchase->request_at)->where('id', '<', $purchase->id);
+                    });
+            })
+            ->exists();
+    }
+
     public function nextWatermarkAfter(BycelPurchase $purchase): ?int
     {
-        $next = BycelPurchase::where('id', '>', $purchase->id)
+        // Ordered by when the POST was made, not by id: a retried intent keeps its row
+        // but moves later in the sequence. Equal timestamps fall back to id.
+        $next = BycelPurchase::where('id', '!=', $purchase->id)
+            ->where(function ($q) use ($purchase) {
+                $q->where('request_at', '>', $purchase->request_at)
+                    ->orWhere(function ($q) use ($purchase) {
+                        $q->where('request_at', $purchase->request_at)->where('id', '>', $purchase->id);
+                    });
+            })
+            ->orderBy('request_at')
             ->orderBy('id')
             ->value('watermark_id');
 

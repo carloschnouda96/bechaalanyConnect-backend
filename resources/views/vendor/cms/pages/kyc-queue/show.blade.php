@@ -65,6 +65,7 @@
         <form method="post" action="{{ url($prefix . '/kyc-queue/' . $user->id) }}">
             @csrf
             <input type="hidden" name="_method" value="PUT">
+            <input type="hidden" name="reviewed_fingerprint" value="{{ \App\Http\Controllers\Cms\KycController::fingerprint($user) }}">
 
             @if ($errors->any())
                 <div class="alert alert-danger">
@@ -79,6 +80,7 @@
             <div class="form-group">
                 <label for="verification_statuses_id" class="font-weight-bold">Decision</label>
                 <select name="verification_statuses_id" id="verification_statuses_id" class="form-control" required>
+                    <option value="" selected disabled>Choose a decision</option>
                     <option value="{{ \App\Models\User::VERIFICATION_APPROVED }}">Approve</option>
                     <option value="{{ \App\Models\User::VERIFICATION_REJECTED }}">Reject</option>
                     <option value="{{ \App\Models\User::VERIFICATION_PENDING }}">Leave pending</option>

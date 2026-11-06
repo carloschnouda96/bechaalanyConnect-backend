@@ -25,6 +25,26 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Many sources failing on one admin: staff are told. Nothing refuses the admin on it.
+        \Illuminate\Support\Facades\Event::listen(\Illuminate\Auth\Events\Failed::class, function ($event) {
+            if ($event->guard !== 'admin') {
+                return;
+            }
+
+            // By account where one was found: spellings of one address are one target.
+            $identity = $event->user
+                ? 'admin:' . $event->user->getAuthIdentifier()
+                : strtolower(trim((string) ($event->credentials['email'] ?? '')));
+            $key = 'cms-login-failure-signal:' . sha1($identity);
+
+            if (\Illuminate\Support\Facades\RateLimiter::hit($key, 900) === 50) {
+                \Illuminate\Support\Facades\Log::critical('Many failed CMS logins on one address from many sources', ['identity_hash' => sha1($identity)]);
+            }
+        });
+
+        // Boots after the package provider, so this replaces its `admin` alias.
+        $this->app['router']->aliasMiddleware('admin', \App\Http\Middleware\CmsAdminMiddleware::class);
+
         // Laravel 10 defaults to Tailwind pagination views. The CMS is Bootstrap 4
         // (hellotree already ships bootstrap.min.css); without this, $rows->links()
         // on every server-side list emits Tailwind utilities the admin theme never

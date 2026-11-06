@@ -12,6 +12,8 @@ use Illuminate\Support\Facades\Storage;
 
 class CreditsController extends Controller
 {
+    private const MAX_PENDING_TOPUPS = 10;
+
     //Get all credits types
     public function getCredits(Request $request)
     {
@@ -25,7 +27,7 @@ class CreditsController extends Controller
     public function getUserCredits(Request $request)
     {
         $page = $request->get('page', 1);
-        $limit = $request->get('limit', 10);
+        $limit = min(100, max(1, (int) $request->get('limit', 10)));
         $credits = CreditsTransfer::where('users_id', auth()->id())
             ->with(['credits_types'])
             ->orderBy('created_at', 'desc')
@@ -66,10 +68,22 @@ class CreditsController extends Controller
 
         // Validate the request data
         $validatedData = $request->validate([
-            'amount' => 'required|numeric|min:1',
+            'amount' => 'required|numeric|min:1|max:9999999999.99',
             'receipt_image' => 'required|image|mimes:jpeg,png,jpg,gif,webp|max:5120',
-            'credits_types_id' => 'required|exists:credits_types,id',
+            'credits_types_id' => 'required|integer|exists:credits_types,id',
         ]);
+
+        // Each request stores a 5 MB file and mails the admin, and nothing would ever clean
+        // up a pile of top-ups nobody can act on.
+        $pending = CreditsTransfer::where('users_id', $user->id)
+            ->where('statuses_id', CreditsTransfer::STATUS_PENDING)
+            ->count();
+        if ($pending >= self::MAX_PENDING_TOPUPS) {
+            return response()->json([
+                'message' => __('api.credits.too_many_pending'),
+                'code' => 'too_many_pending_topups',
+            ], 429);
+        }
 
         // PRIVATE disk: a payment receipt is a bank/wallet screenshot carrying the
         // customer's name, account or phone number and transfer reference. On the
@@ -78,13 +92,20 @@ class CreditsController extends Controller
         // (or the admin panel).
         $receiptImagePath = $request->file('receipt_image')->store('receipts', 'private');
 
-        $transferRequest = new CreditsTransfer();
-        $transferRequest->users_id = $user->id;
-        $transferRequest->amount = $validatedData['amount'];
-        $transferRequest->receipt_image = $receiptImagePath;
-        $transferRequest->credits_types_id = $validatedData['credits_types_id'];
-        $transferRequest->statuses_id = CreditsTransfer::STATUS_PENDING;
-        $transferRequest->save();
+        // A file with no row is on no list and counts towards no cap.
+        try {
+            $transferRequest = new CreditsTransfer();
+            $transferRequest->users_id = $user->id;
+            $transferRequest->amount = $validatedData['amount'];
+            $transferRequest->receipt_image = $receiptImagePath;
+            $transferRequest->credits_types_id = $validatedData['credits_types_id'];
+            $transferRequest->statuses_id = CreditsTransfer::STATUS_PENDING;
+            $transferRequest->save();
+        } catch (\Throwable $e) {
+            Storage::disk('private')->delete($receiptImagePath);
+
+            throw $e;
+        }
 
         if ($admin_email) {
             try {

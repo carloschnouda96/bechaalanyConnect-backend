@@ -212,6 +212,10 @@ return [
         // product_list says "Alfa Invoice"; last_pin_report says "alfa 4.5$ " (note
         // the trailing space). Two vocabularies — leave OFF until probing proves
         // they agree.
+        // True only if nothing but this system buys on the Bycel account (no merchant app, no other
+        // integration). Otherwise each voucher waits for staff on Supplier health. The product
+        // name setting below filters candidates; it does not stand in for this.
+        'account_api_only' => env('BYCEL_ACCOUNT_API_ONLY', false),
         'match_product_name' => env('BYCEL_MATCH_PRODUCT_NAME', false),
 
         'product_list_ttl' => env('BYCEL_PRODUCT_LIST_TTL', 600),
@@ -235,7 +239,13 @@ return [
     | trigger them. Leave empty to keep the endpoints open (like the host's other
     | tokenless wget jobs).
     */
+    'auth' => [
+        // Pre-login mail (sign-up, recovery) across all addresses, per hour.
+        'mail_hourly_cap' => env('AUTH_MAIL_HOURLY_CAP', 2000),
+    ],
+
     'cron' => [
+        'header_only' => env('CRON_TOKEN_HEADER_ONLY', false),
         'token' => env('CRON_TOKEN'),
     ],
 

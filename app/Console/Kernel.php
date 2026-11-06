@@ -16,6 +16,8 @@ class Kernel extends ConsoleKernel
         // supplier orders. Every command no-ops unless that supplier's
         // *_SYNC_ENABLED=true with credentials set.
         // Requires the system cron entry: * * * * * php artisan schedule:run
+        $schedule->command('cache:prune-expired')->hourly()->withoutOverlapping();
+
         $schedule->command('yassen:sync')->hourly()->withoutOverlapping();
         $schedule->command('yassen:check-orders')->everyFiveMinutes()->withoutOverlapping();
 

@@ -9,6 +9,7 @@ use App\ProductsVariation;
 use Hellotreedigital\Cms\Controllers\CmsPageController;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -43,6 +44,25 @@ class CatalogDeleteController extends Controller
     public function destroyVariation(Request $request, $id)
     {
         return $this->guard($id, 'products-variations');
+    }
+
+    /**
+     * A payment method with any top-up, soft-deleted ones included, is kept: those rows
+     * are the record of money that moved. Comma lists are judged per record.
+     */
+    public function destroyCreditsType(Request $request, $id)
+    {
+        $ids = array_values(array_filter(array_map('intval', explode(',', (string) $id))));
+        $inUse = DB::table('credits_transfer')->whereIn('credits_types_id', $ids)->distinct()->pluck('credits_types_id')->all();
+        $allowed = array_values(array_diff($ids, $inUse));
+
+        if ($allowed) {
+            $this->cmsPageController->destroy(implode(',', $allowed), 'credits-types');
+        }
+
+        return $inUse
+            ? $this->refuse('credits-types', 'Payment methods #' . implode(', #', $inUse) . ' have top-ups on record and were kept.')
+            : redirect(config('hellotree.cms_route_prefix') . '/credits-types')->with('success', 'Deleted.');
     }
 
     /**

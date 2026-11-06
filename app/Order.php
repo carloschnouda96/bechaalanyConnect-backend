@@ -62,6 +62,10 @@ class Order extends Model
     protected $extraHidden = [
         'external_response',
         'external_order_uuid',
+        'external_source',
+        'external_order_id',
+        'external_status',
+        'last_polled_at',
         'cms_draft_flag',
     ];
 

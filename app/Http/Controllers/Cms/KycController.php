@@ -6,10 +6,12 @@ use App\Http\Controllers\Controller;
 use App\Http\Controllers\NotificationController;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Mail;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 /**
  * A dedicated review queue for identity verification.
@@ -127,19 +129,33 @@ class KycController extends Controller
                 Rule::requiredIf(fn () => (int) $request->input('verification_statuses_id') === User::VERIFICATION_REJECTED),
                 'nullable', 'string', 'max:2000',
             ],
+            'reviewed_fingerprint' => ['required', 'string'],
         ], [
             'rejection_reason.required' => 'Tell the applicant what was wrong, so they know what to fix.',
         ]);
 
-        $user = User::findOrFail($id);
-        $previous = (int) $user->verification_statuses_id;
-        $new = (int) $data['verification_statuses_id'];
+        [$user, $previous, $new] = DB::transaction(function () use ($data, $id) {
+            $user = User::where('id', $id)->lockForUpdate()->firstOrFail();
 
-        $user->verification_statuses_id = $new;
-        $user->rejection_reason = $new === User::VERIFICATION_REJECTED
-            ? $data['rejection_reason']
-            : null;
-        $user->save();
+            // The decision is about what the reviewer saw. A customer can resubmit while
+            // the page is open, and approving then would pass documents nobody looked at.
+            if (!hash_equals(self::fingerprint($user), (string) $data['reviewed_fingerprint'])) {
+                throw ValidationException::withMessages([
+                    'reviewed_fingerprint' => 'This application changed while you were reviewing it. Review it again.',
+                ]);
+            }
+
+            $previous = (int) $user->verification_statuses_id;
+            $new = (int) $data['verification_statuses_id'];
+
+            $user->verification_statuses_id = $new;
+            $user->rejection_reason = $new === User::VERIFICATION_REJECTED
+                ? $data['rejection_reason']
+                : null;
+            $user->save();
+
+            return [$user, $previous, $new];
+        });
 
         if ($previous !== $new) {
             self::notifyDecision($user, $new, $previous);
@@ -147,6 +163,17 @@ class KycController extends Controller
 
         return redirect(config('hellotree.cms_route_prefix') . '/kyc-queue')
             ->with('success', 'Verification updated for ' . $user->username . '.');
+    }
+
+    /** What a reviewer is deciding on: the current status and the three stored documents. */
+    public static function fingerprint(User $user): string
+    {
+        $parts = [(string) $user->verification_statuses_id];
+        foreach (self::SLOTS as $column) {
+            $parts[] = (string) $user->{$column};
+        }
+
+        return hash('sha256', implode('|', $parts));
     }
 
     /**

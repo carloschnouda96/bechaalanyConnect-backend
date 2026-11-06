@@ -24,9 +24,10 @@ use Illuminate\Support\Facades\Log;
  *
  *  - the window is bounded and recomputable days later, so a crashed purchase can
  *    still be reconciled correctly;
- *  - PROVABLE NON-PURCHASE: once a LATER intent exists (so the window is closed),
- *    if a coverage-proven page shows no candidate in it, nothing was bought. That
- *    is the only condition under which an order may be auto-failed and refunded.
+ *  - NO ROW IN A CLOSED WINDOW: once a LATER intent exists, a coverage-proven page
+ *    with no candidate in the window suggests nothing was bought. It does not prove
+ *    it when the POST got no answer, so BycelConnector sends that to a human. Only a
+ *    definite refusal from Bycel refunds automatically.
  *
  * COVERAGE
  *
@@ -119,6 +120,24 @@ class BycelPinResolver
         }
 
         if (count($candidates) === 1) {
+            // A window with no room in it, or an earlier purchase that could own this row,
+            // means one candidate proves nothing. A person decides.
+            // Report rows name no order, so a lone match proves ownership only if nothing but
+            // this system buys on the account. An equal name does not: another sale of the same
+            // product has it too. A zero watermark saw no row before the POST, so an older sale
+            // cannot be told apart from ours.
+            $provable = config('services.bycel.account_api_only') && $watermark > 0;
+
+            if (!$provable || ($upper !== null && $upper <= $watermark) || $this->ledger->hasOlderOpenIntent($purchase)) {
+                Log::critical('Bycel PIN claim cannot be proven — refusing to auto-deliver', [
+                    'purchase_id' => $purchase->id,
+                    'order_id' => $purchase->order_id,
+                    'candidate_ids' => [$candidates[0]['MerchantPurchaseId'] ?? null],
+                ]);
+
+                return BycelClaimOutcome::ambiguous($candidates);
+            }
+
             return BycelClaimOutcome::claimed($candidates[0]);
         }
 
@@ -134,8 +153,16 @@ class BycelPinResolver
 
         // Zero candidates. Only safe to declare "never purchased" once the window is
         // closed by a later intent — otherwise the PIN may simply not exist yet.
-        if ($upper !== null) {
+        // An upper bound at or below our own watermark is not a window at all: a retried
+        // intent keeps its old row and can sit behind a later intent.
+        if ($upper !== null && $upper > $watermark) {
             return BycelClaimOutcome::notPurchased('window closed with no matching row');
+        }
+
+        // A later intent took the same watermark, so no row can ever fall in this window. Left
+        // pending it would wait forever on no list. Staff can see the rows above the watermark.
+        if ($upper !== null) {
+            return BycelClaimOutcome::ambiguous([]);
         }
 
         return BycelClaimOutcome::pending('no matching row yet');
@@ -157,8 +184,9 @@ class BycelPinResolver
             $rows = $this->client->lastPinReport((int) $size);
 
             if ($rows === []) {
-                // A fresh account with no transactions at all: trivially covered.
-                return [[], true];
+                // Only an account with no transactions at all is trivially covered. With a
+                // watermark above 0 an empty page contradicts what we saw before the POST.
+                return [[], $watermark === 0];
             }
 
             $ids = array_values(array_filter(array_map(
@@ -170,9 +198,10 @@ class BycelPinResolver
                 return [$rows, false];
             }
 
-            // Covered if we can see at or below the watermark, or if the account
-            // simply has fewer transactions than we asked for.
-            if (min($ids) <= $watermark || count($rows) < (int) $size) {
+            // Covered if we can see at or below the watermark. A short page counts only for an
+            // account that had nothing before this purchase: with a watermark above 0 it means
+            // the report dropped rows we saw before the POST.
+            if (min($ids) <= $watermark || ($watermark === 0 && count($rows) < (int) $size)) {
                 return [$rows, true];
             }
         }

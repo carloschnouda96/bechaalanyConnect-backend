@@ -4,6 +4,7 @@ namespace App\Services\Suppliers\Connectors;
 
 use App\Order;
 use App\ProductsVariation;
+use App\Services\Suppliers\Contracts\ParksBeforeWrite;
 use App\Services\Suppliers\Contracts\SupplierConnector;
 use App\Services\Suppliers\SupplierIndeterminateException;
 use App\Services\Suppliers\SupplierOrderResult;
@@ -26,12 +27,12 @@ use Illuminate\Support\Str;
  *
  * All synced Swift products are product_type_id = 1 (recipient/link field).
  */
-class SwiftConnector implements SupplierConnector
+class SwiftConnector implements SupplierConnector, ParksBeforeWrite
 {
     public const KEY = 'swift';
 
     /** Marks an order whose add outcome is unknown: not a Swift order id, so never polled. */
-    private const PARKED_ID_PREFIX = 'parked-';
+    private const PARKED_ID_PREFIX = SupplierOrderResult::PARKED_ID_PREFIX;
 
     public function __construct(private SwiftClient $client)
     {
@@ -69,7 +70,7 @@ class SwiftConnector implements SupplierConnector
 
             $out[] = new SupplierProduct(
                 externalId: $externalId,
-                name: trim((string) ($raw['name'] ?? ('Service ' . $externalId))),
+                name: trim((string) ($raw['name'] ?? 'Service')),
                 // No category id in Perfect Panel — group by a slug of the name.
                 categoryExternalId: Str::slug($category) ?: 'uncategorized',
                 categoryName: $category,
@@ -96,6 +97,11 @@ class SwiftConnector implements SupplierConnector
                 (string) $order->recipient_user,
                 (int) $order->quantity,
             );
+
+            // A 200 with no order id says nothing about whether it was bought.
+            if (!isset($response['order'])) {
+                throw new SupplierIndeterminateException('add returned no order id');
+            }
         } catch (SupplierIndeterminateException $e) {
             // Never refund and never re-send: park it PENDING for a human, who rejects it in
             // the CMS to refund if the panel shows no such order. The id keeps fulfill() from
@@ -114,7 +120,7 @@ class SwiftConnector implements SupplierConnector
         }
 
         return new SupplierOrderResult(
-            externalOrderId: isset($response['order']) ? (string) $response['order'] : null,
+            externalOrderId: (string) $response['order'],
             status: SupplierOrderResult::PENDING,
             raw: $response,
         );

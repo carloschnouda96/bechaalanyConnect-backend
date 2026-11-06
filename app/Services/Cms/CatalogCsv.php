@@ -128,12 +128,12 @@ class CatalogCsv
     private static function row($product, $variation, array $locales): array
     {
         $row = [
-            'product_slug' => $product->slug,
-            'category_slug' => optional(optional($product->subcategory)->category)->slug,
-            'subcategory_slug' => optional($product->subcategory)->slug,
+            'product_slug' => self::neutralise($product->slug),
+            'category_slug' => self::neutralise(optional(optional($product->subcategory)->category)->slug),
+            'subcategory_slug' => self::neutralise(optional($product->subcategory)->slug),
             'product_type_id' => $product->product_type_id,
             'product_is_active' => (int) $product->is_active,
-            'variation_slug' => $variation ? $variation->slug : null,
+            'variation_slug' => $variation ? self::neutralise($variation->slug) : null,
             'cost_price' => $variation ? $variation->cost_price : null,
             'price' => $variation ? $variation->price : null,
             'profit_percentage' => $variation ? $variation->profit_percentage : null,
@@ -148,12 +148,52 @@ class CatalogCsv
 
             foreach ($locales as $locale) {
                 $row[$column . '_' . $locale] = $model
-                    ? optional($model->translate($locale))->{$attribute}
+                    ? self::neutralise(optional($model->translate($locale))->{$attribute})
                     : null;
             }
         }
 
         return $row;
+    }
+
+    /**
+     * Stops a spreadsheet from running supplier-written text as a formula when an admin
+     * opens the export. restore() undoes it on import, so a round trip changes nothing.
+     */
+    /**
+     * One CSV line with every cell quoted. fputcsv leaves `a;=1+1;b` bare, and a spreadsheet
+     * set to semicolon-separated files would split it and run the formula in the middle.
+     */
+    public static function line(array $cells): string
+    {
+        return implode(',', array_map(
+            fn ($cell) => '"' . str_replace('"', '""', (string) $cell) . '"',
+            $cells
+        ));
+    }
+
+    public static function neutralise($value)
+    {
+        if (!is_string($value)) {
+            return $value;
+        }
+
+        // Inside the text too: a spreadsheet set to another separator splits the cell there,
+        // so a formula after it would start its own cell.
+        $value = preg_replace('/([;,\t|\r\n"]\s*)([=+\-@])/', "$1'$2", $value);
+
+        return preg_match('/^\s*[=+\-@\t\r]/', $value) ? "'" . $value : $value;
+    }
+
+    public static function restore($value)
+    {
+        if (!is_string($value)) {
+            return $value;
+        }
+
+        $value = preg_match('/^\'\s*[=+\-@\t\r]/', $value) ? substr($value, 1) : $value;
+
+        return preg_replace('/([;,\t|\r\n"]\s*)\'([=+\-@])/', '$1$2', $value);
     }
 
     /**
@@ -172,6 +212,12 @@ class CatalogCsv
             return ['header' => [], 'rows' => [], 'errors' => ['The file could not be opened.']];
         }
 
+        // Skipped before parsing: a BOM in front of a quoted first cell would make the quotes
+        // literal, so that cell (and the whole header) would no longer match.
+        if (fread($handle, 3) !== "\xEF\xBB\xBF") {
+            rewind($handle);
+        }
+
         $header = fgetcsv($handle, 0, ',', '"', '');
 
         if ($header === false || $header === [null]) {
@@ -180,9 +226,6 @@ class CatalogCsv
             return ['header' => [], 'rows' => [], 'errors' => ['The file is empty.']];
         }
 
-        // Excel writes a UTF-8 BOM, which would otherwise make the first column name
-        // "\u{FEFF}product_slug" and every lookup on it miss.
-        $header[0] = preg_replace('/^\x{FEFF}/u', '', (string) $header[0]);
         $header = array_map(fn ($h) => trim((string) $h), $header);
 
         $errors = [];
@@ -217,7 +260,10 @@ class CatalogCsv
             $row = [];
 
             foreach ($header as $i => $name) {
-                $row[$name] = array_key_exists($i, $values) ? trim((string) $values[$i]) : null;
+                $cell = array_key_exists($i, $values) ? trim((string) $values[$i]) : null;
+                // Only text columns were neutralised on export; a slug or number is left alone.
+                $translated = preg_replace('/_[a-z]{2}$/', '', (string) $name);
+                $row[$name] = in_array($translated, self::TRANSLATED_COLUMNS, true) ? self::restore($cell) : $cell;
             }
 
             $row['__line'] = $line;

@@ -7,6 +7,7 @@ use App\Services\Suppliers\SupplierOrderFulfillment;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 
@@ -23,8 +24,13 @@ class FulfillSupplierOrderJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
-    public int $tries = 3;
-    public int $backoff = 30;
+    public int $tries = 6;
+
+    /** Seconds before attempts 2..6. A rate-limited supplier asks for up to an hour. */
+    public function backoff(): array
+    {
+        return [30, 120, 600, 1800, 3600];
+    }
 
     public function __construct(public int $orderId)
     {
@@ -53,5 +59,14 @@ class FulfillSupplierOrderJob implements ShouldQueue
         }
 
         $fulfillment->fulfill($order);
+    }
+
+    /** The customer has paid and nothing was placed. Supplier health lists it for staff. */
+    public function failed(\Throwable $e): void
+    {
+        Log::critical('Supplier order was never placed after every retry', [
+            'order_id' => $this->orderId,
+            'error' => $e->getMessage(),
+        ]);
     }
 }

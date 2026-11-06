@@ -28,6 +28,23 @@ class User extends Authenticatable
     const VERIFICATION_APPROVED = 3;
     const VERIFICATION_REJECTED = 4;
 
+    /** Most recent first and bounded: this ships on every profile read and login. */
+    public const RECENT_ACTIVITY_LIMIT = 100;
+
+    public function loadRecentActivity(): static
+    {
+        $this->setRelation('orders', $this->orders()->orderByDesc('id')->limit(self::RECENT_ACTIVITY_LIMIT)->get());
+        $this->setRelation('credits', $this->credits()->orderByDesc('id')->limit(self::RECENT_ACTIVITY_LIMIT)->get());
+
+        return $this;
+    }
+
+    /**
+     * A handle, not free text. Other people see usernames, and a stranger's sign-up form can
+     * supply one, so it cannot hold a sentence or a link.
+     */
+    const USERNAME_PATTERN = '/^[\pL\pN_-]{3,30}$/u';
+
     /**
      * The account whose stored email is exactly this address, ignoring ASCII case.
      *

@@ -2,7 +2,10 @@
 
 namespace App\Services\Yassen;
 
+use App\Services\Suppliers\SupplierIndeterminateException;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Http\Client\PendingRequest;
+use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Http;
 
 /**
@@ -58,7 +61,27 @@ class YassenClient
      */
     public function newOrder(int|string $productId, array $params): array
     {
-        return $this->get('/client/api/newOrder/' . $productId . '/params', $params);
+        // One attempt. The dedupe on order_uuid is only assumed, so an answer lost to a
+        // timeout or a 5xx is treated as unknown rather than sent again.
+        try {
+            $response = Http::baseUrl($this->baseUrl)
+                ->withHeaders(['api-token' => (string) $this->token])
+                ->acceptJson()
+                ->timeout(30)
+                ->get('/client/api/newOrder/' . $productId . '/params', $params);
+        } catch (ConnectionException) {
+            throw new SupplierIndeterminateException("{$this->label} purchase outcome unknown: connection error");
+        }
+
+        if ($response->serverError() || $response->status() === 408) {
+            throw new SupplierIndeterminateException(
+                "{$this->label} purchase outcome unknown: HTTP {$response->status()}",
+                null,
+                $response->status()
+            );
+        }
+
+        return $this->decode($response, '/client/api/newOrder');
     }
 
     /**
@@ -75,8 +98,11 @@ class YassenClient
 
     private function get(string $path, array $query = []): array
     {
-        $response = $this->request()->get($path, $query);
+        return $this->decode($this->request()->get($path, $query), $path);
+    }
 
+    private function decode(Response $response, string $path): array
+    {
         if ($response->failed()) {
             // The documented error codes may also arrive on a non-2xx reply;
             // keep the code so a connector can tell a final refusal from an outage.

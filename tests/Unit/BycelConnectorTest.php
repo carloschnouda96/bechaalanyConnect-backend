@@ -31,6 +31,7 @@ class BycelConnectorTest extends TestCase
         parent::setUp();
         Cache::flush(); // the product_list snapshot and purchase lock are cached
         config([
+            'services.bycel.account_api_only' => true,
             'services.bycel.base_url' => 'https://www.bycel.app/OutAPIV1',
             'services.bycel.key' => 'TEST_key',
             'services.bycel.enabled' => true,
@@ -307,6 +308,36 @@ class BycelConnectorTest extends TestCase
         Http::assertNotSent(fn ($r) => str_contains($r->url(), 'buy_voucher'));
     }
 
+    public function test_no_purchase_is_sent_without_a_usable_watermark(): void
+    {
+        $this->fakeApi([$this->product()], [['Something' => 'else']], []);
+        [$connector, $ledger] = $this->connector();
+
+        try {
+            $connector->placeOrder($this->order(), $this->variation('voucher:11'));
+            $this->fail('expected a retryable supplier error');
+        } catch (\App\Services\Suppliers\SupplierApiException) {
+        }
+
+        $this->assertSame(0, $ledger->openIntentCalls);
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'buy_voucher'));
+    }
+
+    public function test_an_empty_report_is_no_watermark_once_purchases_exist(): void
+    {
+        $this->fakeApi([$this->product()], [], []);
+        [$connector, $ledger] = $this->connector();
+        $ledger->anyPurchase = true;
+
+        try {
+            $connector->placeOrder($this->order(), $this->variation('voucher:11'));
+            $this->fail('expected a retryable supplier error');
+        } catch (\App\Services\Suppliers\SupplierApiException) {
+        }
+
+        Http::assertNotSent(fn ($r) => str_contains($r->url(), 'buy_voucher'));
+    }
+
     // ------------------------------------------------------------- purchase paths
 
     public function test_voucher_purchase_claims_the_pin_and_renders_it_as_li_html(): void
@@ -536,6 +567,49 @@ class BycelConnectorTest extends TestCase
         $this->assertSame(SupplierOrderResult::PENDING, $result->status);
     }
 
+    /** An intent whose POST got no answer, re-read by the poller. */
+    private function unansweredIntent(FakeBycelLedger $ledger): void
+    {
+        $ledger->purchase = new BycelPurchase([
+            'order_id' => 1,
+            'order_uuid' => 'uuid-1',
+            'family' => 'voucher',
+            'product_id' => '3468',
+            'watermark_id' => 100,
+            'state' => BycelPurchase::STATE_SENT,
+            'snapshot' => ['FinalSellingPrice_LBP' => 467052.5, 'FacePrice_USD' => 4.5],
+        ]);
+        $ledger->purchase->id = 1;
+    }
+
+    public function test_an_unanswered_purchase_never_auto_delivers_a_lone_report_row(): void
+    {
+        [$connector, $ledger] = $this->connector();
+        $this->unansweredIntent($ledger);
+        Http::fake(['*' => Http::response([$this->reportRow(100), $this->reportRow(101)], 200)]);
+
+        $order = $this->order(['external_order_id' => 'voucher:pending-1', 'external_order_uuid' => 'uuid-1']);
+        $result = $connector->checkOrder($order);
+
+        $this->assertSame(SupplierOrderResult::PENDING, $result->status);
+        $this->assertSame(BycelPurchase::STATE_AMBIGUOUS, $ledger->purchase->state);
+        $this->assertEmpty($order->code);
+    }
+
+    public function test_an_unanswered_purchase_is_never_auto_refunded(): void
+    {
+        [$connector, $ledger] = $this->connector();
+        $this->unansweredIntent($ledger);
+        $ledger->nextWatermark = 200;
+        Http::fake(['*' => Http::response([$this->reportRow(100)], 200)]);
+
+        $order = $this->order(['external_order_id' => 'voucher:pending-1', 'external_order_uuid' => 'uuid-1']);
+        $result = $connector->checkOrder($order);
+
+        $this->assertSame(SupplierOrderResult::PENDING, $result->status);
+        $this->assertSame(BycelPurchase::STATE_AMBIGUOUS, $ledger->purchase->state);
+    }
+
     public function test_balance_converts_lbp_using_a_catalog_rate(): void
     {
         Http::fake(function ($request) {
@@ -555,5 +629,67 @@ class BycelConnectorTest extends TestCase
 
         $this->assertTrue($registry->has(BycelConnector::KEY));
         $this->assertInstanceOf(BycelConnector::class, $registry->get(BycelConnector::KEY));
+    }
+
+    public function test_a_confirmed_recharge_stays_complete_when_its_row_cannot_be_proven(): void
+    {
+        config(['services.bycel.account_api_only' => false]);
+        $this->fakeApi([$this->product()], [$this->reportRow(99)], [$this->reportRow(99), $this->reportRow(101, ['PinCode' => '', 'DirectRecharge' => '76123456'])]);
+        [$connector, $ledger] = $this->connector();
+
+        $result = $connector->placeOrder($this->order(['recipient_phone_number' => '76123456']), $this->variation('recharge:11'));
+
+        $this->assertSame(SupplierOrderResult::COMPLETED, $result->status);
+        $this->assertSame(BycelPurchase::STATE_DELIVERED, $ledger->purchase->state);
+    }
+
+    public function test_a_claimed_voucher_with_no_code_gets_its_pin_back_on_the_next_poll(): void
+    {
+        $row = $this->reportRow(101);
+        $purchase = new BycelPurchase([
+            'order_uuid' => 'uuid-501', 'family' => 'voucher', 'state' => BycelPurchase::STATE_CLAIMED,
+            'merchant_purchase_id' => 101, 'pin_hash' => hash('sha256', $row['PinCode']),
+        ]);
+        $purchase->id = 1;
+        Http::fake(['*last_pin_report*' => Http::response([$row], 200)]);
+        [$connector] = $this->connector(new FakeBycelLedger($purchase));
+        $order = $this->order(['external_order_id' => 'voucher:101', 'external_status' => SupplierOrderResult::COMPLETED]);
+
+        $result = $connector->checkOrder($order);
+
+        $this->assertSame(SupplierOrderResult::COMPLETED, $result->status);
+        $this->assertStringContainsString($row['PinCode'], (string) $order->code);
+    }
+
+    public function test_a_claimed_voucher_whose_row_is_gone_stays_pending_rather_than_complete(): void
+    {
+        $purchase = new BycelPurchase([
+            'order_uuid' => 'uuid-501', 'family' => 'voucher', 'state' => BycelPurchase::STATE_CLAIMED,
+            'merchant_purchase_id' => 101, 'pin_hash' => hash('sha256', 'x'),
+        ]);
+        $purchase->id = 1;
+        Http::fake(['*last_pin_report*' => Http::response([$this->reportRow(500)], 200)]);
+        [$connector] = $this->connector(new FakeBycelLedger($purchase));
+        $order = $this->order(['external_order_id' => 'voucher:uuid-501', 'external_status' => SupplierOrderResult::PENDING]);
+
+        $this->assertSame(SupplierOrderResult::PENDING, $connector->checkOrder($order)->status);
+        $this->assertNull($order->code);
+    }
+
+    public function test_a_confirmed_voucher_with_no_row_for_an_hour_goes_to_review(): void
+    {
+        $purchase = new BycelPurchase([
+            'order_uuid' => 'uuid-501', 'family' => 'voucher', 'product_id' => '11', 'state' => BycelPurchase::STATE_SENT,
+            'watermark_id' => 100, 'response_result' => 'OK', 'request_at' => now()->subHours(2),
+            'snapshot' => ['FinalSellingPrice_LBP' => 467052.5, 'FacePrice_USD' => 4.5],
+        ]);
+        $purchase->id = 1;
+        Http::fake(['*last_pin_report*' => Http::response([$this->reportRow(100)], 200)]);
+        $ledger = new FakeBycelLedger($purchase);
+        [$connector] = $this->connector($ledger);
+
+        $connector->checkOrder($this->order(['external_order_id' => 'voucher:uuid-501', 'external_status' => SupplierOrderResult::PENDING]));
+
+        $this->assertSame(BycelPurchase::STATE_AMBIGUOUS, $purchase->state);
     }
 }

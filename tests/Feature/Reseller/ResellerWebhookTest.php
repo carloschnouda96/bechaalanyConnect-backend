@@ -156,7 +156,7 @@ class ResellerWebhookTest extends TestCase
         $user = $this->reseller();
         Sanctum::actingAs($user);
 
-        $secret = $this->putJson('/api/user/api-webhook', ['url' => 'https://shop.example.com/hooks'])
+        $secret = $this->putJson('/api/user/api-webhook', ['url' => 'https://shop.example.com/hooks', 'current_password' => 'secret-Password1'])
             ->assertStatus(201)
             ->assertJsonPath('webhook.url', 'https://shop.example.com/hooks')
             ->json('secret');
@@ -172,11 +172,11 @@ class ResellerWebhookTest extends TestCase
         $this->assertStringNotContainsString($secret, json_encode($listed));
 
         // Changing the URL keeps the secret.
-        $this->putJson('/api/user/api-webhook', ['url' => 'https://shop.example.com/v2'])
+        $this->putJson('/api/user/api-webhook', ['url' => 'https://shop.example.com/v2', 'current_password' => 'secret-Password1'])
             ->assertStatus(200)->assertJsonPath('secret', null);
         $this->assertSame($secret, ApiWebhook::where('user_id', $user->id)->first()->secret);
 
-        $rotated = $this->postJson('/api/user/api-webhook/rotate-secret')->assertOk()->json('secret');
+        $rotated = $this->postJson('/api/user/api-webhook/rotate-secret', ['current_password' => 'secret-Password1'])->assertOk()->json('secret');
         $this->assertNotSame($secret, $rotated);
         $this->assertSame($rotated, ApiWebhook::where('user_id', $user->id)->first()->secret);
 
@@ -204,7 +204,7 @@ class ResellerWebhookTest extends TestCase
             'https://mixed.example.com/hooks',
             'https://nxdomain.example.com/hooks',
         ] as $url) {
-            $this->putJson('/api/user/api-webhook', ['url' => $url])
+            $this->putJson('/api/user/api-webhook', ['url' => $url, 'current_password' => 'secret-Password1'])
                 ->assertStatus(422)->assertJsonValidationErrors('url');
         }
 
@@ -228,7 +228,7 @@ class ResellerWebhookTest extends TestCase
     {
         Sanctum::actingAs($this->reseller(false));
 
-        $this->putJson('/api/user/api-webhook', ['url' => 'https://shop.example.com/hooks'])
+        $this->putJson('/api/user/api-webhook', ['url' => 'https://shop.example.com/hooks', 'current_password' => 'secret-Password1'])
             ->assertStatus(403)->assertJsonPath('code', 'api_not_enabled');
     }
 

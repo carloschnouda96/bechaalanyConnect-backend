@@ -93,6 +93,15 @@ class SocialiteController extends Controller
             ], 409);
         }
 
+        // users.email treats accented spellings as the plain address, so a row on one would
+        // block the real owner. Sign-up refuses them for the same reason.
+        if (!$user && !preg_match('/^[\x21-\x7E]+$/', (string) $claims['email'])) {
+            return response()->json([
+                'message' => __('api.auth.google_email_conflict'),
+                'code' => 'email_conflict',
+            ], 409);
+        }
+
         if ($user) {
             $attributes = [
                 'google_id' => $claims['sub'],
@@ -135,6 +144,8 @@ class SocialiteController extends Controller
                 'verification_statuses_id' => User::VERIFICATION_UNSUBMITTED,
             ]);
         }
+
+        RegisteredUserController::forgetPendingSignup($claims['email']);
 
         $token = $user->createToken('auth_token')->plainTextToken;
 

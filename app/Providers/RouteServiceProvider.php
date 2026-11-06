@@ -27,6 +27,10 @@ class RouteServiceProvider extends ServiceProvider
     {
         $this->configureRateLimiting();
 
+        // Otherwise /api/v1/credit-types?locale=en matches the {locale} group with "v1" as
+        // the locale, and escapes the per-IP limit that is waived for the reseller API.
+        Route::pattern('locale', 'en|ar');
+
         $this->routes(function () {
             Route::middleware('api')
                 ->prefix('api')
@@ -35,6 +39,23 @@ class RouteServiceProvider extends ServiceProvider
             Route::middleware('web')
                 ->group(base_path('routes/web.php'));
         });
+    }
+
+    /** Per account, once api.key has resolved it: five keys must not mean five budgets. */
+    /**
+     * The admin this spelling reaches. admins.email is utf8mb4_unicode_ci, so accented
+     * spellings find the same row, and each must not get its own budget.
+     */
+    private static function adminLoginIdentity(string $email): string
+    {
+        $id = \Hellotreedigital\Cms\Models\Admin::where('email', $email)->value('id');
+
+        return $id ? 'admin:' . $id : sha1(strtolower(trim($email)));
+    }
+
+    private function resellerKey(Request $request): string
+    {
+        return $request->user()?->id ? 'user:' . $request->user()->id : hash('sha256', (string) $request->bearerToken());
     }
 
     /**
@@ -54,8 +75,9 @@ class RouteServiceProvider extends ServiceProvider
             // The reseller API has its own per-key limiters below. Several of a
             // reseller's customers share one server IP, so the IP bucket would
             // throttle an integration long before its key limit.
+            // The ceiling stays high for the same reason, but bounds failed keys from one IP.
             if ($request->is('api/v1/*')) {
-                return Limit::none();
+                return Limit::perMinute(600)->by('v1-ip:' . ClientIp::network((string) $request->ip()));
             }
 
             return Limit::perMinute(60)->by($request->user()?->id ?: ClientIp::of($request));
@@ -64,81 +86,91 @@ class RouteServiceProvider extends ServiceProvider
         // Reseller API, keyed by the API key itself (hashed — never the raw key)
         // so the limit does not depend on middleware order resolving the user.
         RateLimiter::for('reseller', function (Request $request) {
-            return Limit::perMinute(120)->by('reseller:' . hash('sha256', (string) $request->bearerToken()));
+            return Limit::perMinute(120)->by('reseller:' . $this->resellerKey($request));
         });
 
         RateLimiter::for('reseller-write', function (Request $request) {
-            return Limit::perMinute(30)->by('reseller-write:' . hash('sha256', (string) $request->bearerToken()));
+            // The hourly figure bounds what one account can spend of a shared supplier quota.
+            return [
+                Limit::perMinute(30)->by('reseller-write:' . $this->resellerKey($request)),
+                Limit::perHour(600)->by('reseller-write-hour:' . $this->resellerKey($request)),
+            ];
         });
 
-        // Credential endpoints. The IP bucket is the real limit. The email ceiling is
-        // only a backstop against a botnet converging on one account: at 5 a minute it
-        // let any anonymous caller lock an owner out of login and recovery with 5
-        // requests, so it is deliberately high enough to need many IPs.
+        // Credential endpoints.
         RateLimiter::for('auth', function (Request $request) {
-            $email = strtolower(trim((string) $request->input('email')));
-
-            return array_filter([
+            // No email-only bucket: a stranger on another address could spend it and lock
+            // the owner out of login and recovery. SessionController counts failures per
+            // account and source, and alerts staff on many sources.
+            return [
                 Limit::perMinute(5)->by('auth-ip:' . ClientIp::of($request)),
-                $email !== '' ? Limit::perMinute(30)->by('auth-email:' . sha1($email)) : null,
-            ]);
+                Limit::perHour(60)->by('auth-ip-hour:' . ClientIp::of($request)),
+            ];
         });
 
         // Routes that send an email per request: /register, /forgot-password and
-        // /resend-verification-code. A separate name, so they cannot spend the login
-        // allowance, and a low email cap, because this one bounds mail to one inbox.
+        // /resend-verification-code. Mail to one inbox is bounded where the send happens
+        // (the reset and verification cooldowns), so a refusal here can never stop an
+        // owner's own recovery. RegisteredUserController caps sign-up mail across addresses.
         RateLimiter::for('auth-mail', function (Request $request) {
-            $email = strtolower(trim((string) $request->input('email')));
-
-            return array_filter([
+            return [
                 Limit::perMinute(5)->by('auth-mail-ip:' . ClientIp::of($request)),
-                $email !== '' ? Limit::perMinute(3)->by('auth-mail-email:' . sha1($email)) : null,
-            ]);
+                Limit::perHour(30)->by('auth-mail-ip-hour:' . ClientIp::of($request)),
+            ];
         });
 
         // Authenticated state-changing endpoints (place order, request credits).
         // Safe to key on the user id: these all sit behind auth:sanctum, and by the
         // time the limiter's callback runs for a matched route the user is resolved.
         RateLimiter::for('write', function (Request $request) {
-            return Limit::perMinute(20)->by($request->user()?->id ?: $request->ip());
+            return Limit::perMinute(20)->by($request->user()?->id ?: ClientIp::network((string) $request->ip()));
         });
 
         // File uploads (KYC documents, payment receipts) — each accepts up to 5 MB
         // per file and triggers an admin email.
         RateLimiter::for('uploads', function (Request $request) {
-            return Limit::perMinute(5)->by($request->user()?->id ?: $request->ip());
+            return Limit::perMinute(5)->by($request->user()?->id ?: ClientIp::network((string) $request->ip()));
         });
 
         // Unauthenticated public form that sends mail to the admin address.
         RateLimiter::for('contact', function (Request $request) {
-            return Limit::perMinute(3)->by($request->ip());
+            return [
+                Limit::perMinute(3)->by(ClientIp::network((string) $request->ip())),
+                Limit::perDay(30)->by('contact-day:' . ClientIp::network((string) $request->ip())),
+            ];
         });
 
         // The supplier cron entrypoints run a full multi-supplier sync in-process
         // with set_time_limit(0). Even with a valid token, this bounds the damage
         // from a leaked token or a misconfigured cron hitting it in a loop.
         RateLimiter::for('cron', function (Request $request) {
-            return Limit::perMinute(4)->by($request->ip());
+            return Limit::perMinute(4)->by(ClientIp::network((string) $request->ip()));
         });
 
         // CMS admin login. The `web` middleware group ships with no throttling at
         // all, so POST /admin/login was completely unlimited with no lockout.
         RateLimiter::for('cms-login', function (Request $request) {
-            $email = strtolower(trim((string) $request->input('email')));
+            // Runs before the vendor login, which would pass any JSON value to a query.
+            $input = $request->input('email');
+            if ($input !== null && !is_string($input)) {
+                abort(422);
+            }
 
+            $ip = ClientIp::network((string) $request->ip());
+
+            // Per source only. An email-only bucket is charged before the password is checked,
+            // so strangers could refuse the admin's correct one, and the CMS has no reset to
+            // clear it. AppServiceProvider raises a critical when many sources converge.
             return array_filter([
-                Limit::perMinute(5)->by('cms-ip:' . $request->ip()),
-                // Per IP, so guessing from one address cannot lock the admin out from
-                // another. The email-only ceiling stays as a backstop against many IPs.
-                $email !== '' ? Limit::perMinutes(15, 10)->by('cms-email-ip:' . sha1($email) . '|' . $request->ip()) : null,
-                $email !== '' ? Limit::perMinutes(15, 50)->by('cms-email:' . sha1($email)) : null,
+                Limit::perMinute(5)->by('cms-ip:' . $ip),
+                is_string($input) && $input !== '' ? Limit::perMinutes(15, 10)->by('cms-email-ip:' . self::adminLoginIdentity($input) . '|' . $ip) : null,
             ]);
         });
 
         // Generous ceiling for the CMS/web group as a whole, so a single client
         // cannot saturate PHP-FPM workers through the admin panel.
         RateLimiter::for('web', function (Request $request) {
-            return Limit::perMinute(120)->by($request->ip());
+            return Limit::perMinute(120)->by(ClientIp::network((string) $request->ip()));
         });
     }
 }

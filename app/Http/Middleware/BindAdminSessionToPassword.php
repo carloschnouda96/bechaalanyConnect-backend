@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 
 /**
  * Ends a CMS session once the admin's password has changed.
@@ -44,18 +45,35 @@ class BindAdminSessionToPassword
             return $next($request);
         }
 
-        $before = $admin->getAuthPassword();
         $response = $next($request);
 
         // An admin who changes their own password, on the profile page or the Admins
         // page, keeps this session. Every other session of theirs ends on its next request.
-        if (! $request->isMethodSafe() && $guard->check()) {
+        // Only that request may adopt the new hash: comparing before and after let any
+        // request in flight during someone else's change keep a session it should lose.
+        if ($this->isOwnPasswordChange($request, $admin) && $guard->check()) {
             $current = $admin->fresh()?->getAuthPassword();
-            if ($current !== null && $current !== $before) {
+            // The stored hash must be of the password this request sent. A request that failed
+            // validation, or was refused, could otherwise adopt a change made elsewhere.
+            if ($current !== null && Hash::check((string) $request->input('password'), $current)) {
                 $request->session()->put($key, $guard->hashPasswordForCookie($current));
+                // A new id, so a copy of this cookie does not stay logged in after the change.
+                $request->session()->migrate(true);
             }
         }
 
         return $response;
+    }
+
+    private function isOwnPasswordChange(Request $request, $admin): bool
+    {
+        if ($request->isMethodSafe() || ! $request->filled('password')) {
+            return false;
+        }
+
+        $prefix = trim((string) config('hellotree.cms_route_prefix'), '/');
+
+        return $request->path() === $prefix . '/profile/edit'
+            || $request->path() === $prefix . '/admins/' . $admin->getAuthIdentifier();
     }
 }

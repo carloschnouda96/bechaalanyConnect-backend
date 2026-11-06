@@ -2,6 +2,8 @@
 
 return [
     'subjects' => [
+        'account_exists' => 'Sign-up Attempt On Your Account',
+        'api_key_created' => 'New API Key On Your Account',
         'verify_email' => 'Email Confirmation',
         'reset_password' => 'Reset Password',
         'new_order' => 'New Order Request',
@@ -39,6 +41,7 @@ return [
         'closing' => 'If you believe this is a mistake, please contact support.',
     ],
     'verify_email' => [
+        'customer' => 'customer',
         'greeting' => 'Dear :name,',
         'intro' => 'This is your verification code:',
         'link_instruction' => 'Or click the button below to verify your account and enter the code:',
@@ -49,6 +52,16 @@ return [
         'body_1' => 'Your password has been reset.',
         'body_2' => 'Kindly reset your password by clicking on the following button :',
         'button' => 'Reset Password',
+    ],
+    'account_exists' => [
+        'greeting' => 'Dear :name,',
+        'body' => 'Someone tried to create an account with this email address, which already has one.',
+        'closing' => 'If this was you, sign in or reset your password. If not, you can ignore this email.',
+    ],
+    'api_key_created' => [
+        'greeting' => 'Dear :name,',
+        'body' => 'A new API key named ":key_name" was created on your account.',
+        'closing' => 'If you did not do this, change your password now. That removes every API key.',
     ],
     'password_changed' => [
         'greeting' => 'Dear :name,',

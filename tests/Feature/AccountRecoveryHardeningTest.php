@@ -243,6 +243,7 @@ class AccountRecoveryHardeningTest extends TestCase
         $this->fromNewIp()->postJson('/api/resend-verification-code', ['email' => $user->email])->assertOk();
         $this->fromNewIp()->postJson('/api/verify-email', [
             'email' => $user->email, 'token' => 'link-token', 'code' => (string) $user->fresh()->account_verification_code,
+            'password' => 'Owner-Passw0rd9', 'password_confirmation' => 'Owner-Passw0rd9',
         ])->assertOk();
     }
 
@@ -363,6 +364,7 @@ class AccountRecoveryHardeningTest extends TestCase
 
         $this->fromNewIp()->postJson('/api/verify-email', [
             'email' => $user->email, 'token' => 'link-token', 'code' => (string) $user->fresh()->account_verification_code,
+            'password' => 'Owner-Passw0rd9', 'password_confirmation' => 'Owner-Passw0rd9',
         ])->assertOk();
     }
 
