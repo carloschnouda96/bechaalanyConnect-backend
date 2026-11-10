@@ -78,7 +78,7 @@ class ProductsVariation extends Model  implements TranslatableContract
         // storefront as-is — no cost data in it, unlike its external_* siblings.
         'external_details' => 'array',
         'manual_price' => 'boolean',
-        'profit_percentage' => 'decimal:2',
+        'profit_percentage' => 'decimal:3',
     ];
 
     /**

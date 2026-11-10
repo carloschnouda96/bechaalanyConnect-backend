@@ -56,7 +56,7 @@ class ProductPriceVariation extends Model
     protected $extraHidden = ['profit_percentage'];
 
     protected $casts = [
-        'profit_percentage' => 'decimal:2',
+        'profit_percentage' => 'decimal:3',
     ];
 
     /**
