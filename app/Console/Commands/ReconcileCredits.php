@@ -110,9 +110,9 @@ class ReconcileCredits extends Command
             $drifted->map(fn ($row) => [
                 $row->id . ' ' . $row->username,
                 $row->email,
-                number_format((float) $row->credits_balance, 2),
-                number_format((float) $row->ledger_total, 2),
-                number_format((float) $row->credits_balance - (float) $row->ledger_total, 2),
+                number_format((float) $row->credits_balance, 3),
+                number_format((float) $row->ledger_total, 3),
+                number_format((float) $row->credits_balance - (float) $row->ledger_total, 3),
             ])->all()
         );
 

@@ -106,7 +106,7 @@ class VariationPricing
         $percentage = $variation->profit_percentage !== null ? (float) $variation->profit_percentage : $default;
         $fixed = $variation->manual_price
             || $cost === null
-            || abs(ProductsVariation::computeSellingPrice($cost, $percentage) - $price) >= 0.005;
+            || abs(ProductsVariation::computeSellingPrice($cost, $percentage) - $price) >= 0.0005;
 
         return [
             'mode' => $fixed ? 'fixed' : 'percent',
@@ -288,7 +288,7 @@ class VariationPricing
             return "{$variation->slug}: supplier product — its price follows cost x profit %, so set a profit % instead of adjusting.";
         }
 
-        $new = round((float) $variation->price * (1 + ($percentage / 100)), 2);
+        $new = round((float) $variation->price * (1 + ($percentage / 100)), 3);
 
         if (abs((float) $variation->price - $new) < 0.0001) {
             return false;

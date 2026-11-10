@@ -45,7 +45,7 @@ class ResellerApiController extends Controller
 
         return response()->json([
             'data' => [
-                'balance' => round((float) $user->credits_balance, 2),
+                'balance' => round((float) $user->credits_balance, 3),
                 'currency' => 'USD',
             ],
         ]);

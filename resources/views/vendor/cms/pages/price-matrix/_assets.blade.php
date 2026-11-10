@@ -34,7 +34,7 @@
         // Same arithmetic as ProductsVariation::computeSellingPrice(); display only —
         // the server recomputes every price itself.
         function selling(cost, pct) {
-            return Math.round(cost * (1 + pct / 100) * 100) / 100;
+            return Math.round(cost * (1 + pct / 100) * 1000) / 1000;
         }
 
         function cellState(td) {
@@ -90,7 +90,7 @@
             }
 
             out.classList.toggle('pm-loss', price !== null && cost !== '' && price < parseFloat(cost));
-            out.textContent = price === null ? note : '= ' + price.toFixed(2) + note;
+            out.textContent = price === null ? note : '= ' + price.toFixed(3) + note;
             td.classList.toggle('pm-dirty', isDirty(td));
         }
 

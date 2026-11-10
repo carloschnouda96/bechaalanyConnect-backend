@@ -25,8 +25,8 @@ class InsufficientCreditsException extends RuntimeException
     ) {
         parent::__construct(sprintf(
             'This change needs %s credits but the user only has %s. The status has been left unchanged.',
-            number_format($required, 2),
-            number_format($balance, 2)
+            number_format($required, 3),
+            number_format($balance, 3)
         ));
     }
 }

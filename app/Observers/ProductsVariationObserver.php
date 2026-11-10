@@ -77,7 +77,7 @@ class ProductsVariationObserver
             $wasDerived = $cost !== null && abs(
                 ProductsVariation::computeSellingPrice((float) $cost * $oldUnit, $variation->effectiveProfitPercentage())
                 - (float) $variation->getOriginal('price')
-            ) < 0.005;
+            ) < 0.0005;
 
             if ($wasDerived) {
                 $variation->price = $variation->priceFromCost();

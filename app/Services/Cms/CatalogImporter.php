@@ -467,7 +467,7 @@ class CatalogImporter
         return match ($type) {
             'int' => (int) $value,
             'float' => (float) $value,
-            'decimal' => round((float) $value, 2),
+            'decimal' => round((float) $value, 3),
             // "1"/"0", but also the "TRUE"/"yes" a spreadsheet may produce.
             'bool' => in_array(strtolower((string) $value), ['1', 'true', 'yes', 'y'], true) ? 1 : 0,
             default => $value,
