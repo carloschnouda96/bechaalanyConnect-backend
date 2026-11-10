@@ -66,7 +66,7 @@ class UserBalanceController extends Controller
                 if ($amount < 0 && (float) $user->credits_balance + $amount < 0) {
                     throw ValidationException::withMessages([
                         'amount' => 'This would take the balance below zero. Current balance: '
-                            . number_format((float) $user->credits_balance, 2) . '.',
+                            . number_format((float) $user->credits_balance, 3) . '.',
                     ]);
                 }
 

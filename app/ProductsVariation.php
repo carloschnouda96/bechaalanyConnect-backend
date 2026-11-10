@@ -135,7 +135,7 @@ class ProductsVariation extends Model  implements TranslatableContract
      */
     public static function computeSellingPrice(float $cost, float $profitPercentage): float
     {
-        return round($cost * (1 + ($profitPercentage / 100)), 2);
+        return round($cost * (1 + ($profitPercentage / 100)), 3);
     }
 
     /**
@@ -218,12 +218,12 @@ class ProductsVariation extends Model  implements TranslatableContract
 
     /**
      * Order total for `$coins` coins at `$price` per `$unit` coins, rounded UP to
-     * the cent so no amount, however small, is ever charged $0.00. The storefront
+     * the mill (0.001) so no amount, however small, is ever charged $0.00. The storefront
      * mirrors this exact formula to display the total.
      */
     public static function coinTotal(float $price, int $coins, int $unit): float
     {
-        return ceil(round($price * $coins / max(1, $unit) * 100, 6)) / 100;
+        return ceil(round($price * $coins / max(1, $unit) * 1000, 6)) / 1000;
     }
 
     /**

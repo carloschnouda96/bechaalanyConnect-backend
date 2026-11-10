@@ -134,15 +134,15 @@ class OrderPlacement
                 return null;
             }
 
-            // In whole cents: comparing the DECIMAL's string against a float is how a customer
+            // In whole mills (0.001): comparing the DECIMAL's string against a float is how a customer
             // holding exactly $0.21 was told they were $0.00 short of a $0.21 order.
-            if ((int) round((float) $lockedUser->credits_balance * 100) < (int) round($totalPrice * 100)) {
+            if ((int) round((float) $lockedUser->credits_balance * 1000) < (int) round($totalPrice * 1000)) {
                 // Captured under the lock so the figures reported to the user are the
                 // ones the decision was actually made on.
                 $shortfall = [
-                    'balance' => round((float) $lockedUser->credits_balance, 2),
-                    'required' => round((float) $totalPrice, 2),
-                    'missing' => round((float) $totalPrice - (float) $lockedUser->credits_balance, 2),
+                    'balance' => round((float) $lockedUser->credits_balance, 3),
+                    'required' => round((float) $totalPrice, 3),
+                    'missing' => round((float) $totalPrice - (float) $lockedUser->credits_balance, 3),
                 ];
 
                 return null;
@@ -225,7 +225,7 @@ class OrderPlacement
      * one is set (product_price_variations.price always holds the resolved figure),
      * else the public price. A coin / social-media price is per pricingUnit() units
      * (e.g. $0.13 per 1,000) and the customer types any amount, so the total is
-     * prorated and rounded up to the cent — the storefront displays the same formula.
+     * prorated and rounded up to the mill — the storefront displays the same formula.
      */
     public static function totalFor(ProductsVariation $variation, User $user, int $quantity): float
     {
@@ -233,7 +233,7 @@ class OrderPlacement
 
         return $variation->isProrated()
             ? ProductsVariation::coinTotal($unitPrice, $quantity, $variation->pricingUnit())
-            : round($unitPrice * $quantity, 2);
+            : round($unitPrice * $quantity, 3);
     }
 
     public static function unitPriceFor(ProductsVariation $variation, User $user): float

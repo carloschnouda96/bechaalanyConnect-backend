@@ -38,9 +38,9 @@ class SchemaManifest
                     // All three were DOUBLE(8,2) and NULLable with no default. The
                     // cumulative ones especially need headroom beyond the CMS's
                     // implicit decimal(8,2).
-                    'credits_balance' => ['type' => 'decimal(12,2)', 'null' => false, 'default' => '0.00'],
-                    'total_purchases' => ['type' => 'decimal(12,2)', 'null' => false, 'default' => '0.00'],
-                    'received_amount' => ['type' => 'decimal(12,2)', 'null' => false, 'default' => '0.00'],
+                    'credits_balance' => ['type' => 'decimal(12,3)', 'null' => false, 'default' => '0.000'],
+                    'total_purchases' => ['type' => 'decimal(12,3)', 'null' => false, 'default' => '0.000'],
+                    'received_amount' => ['type' => 'decimal(12,3)', 'null' => false, 'default' => '0.000'],
                 ],
             ],
 
@@ -54,7 +54,8 @@ class SchemaManifest
 
             'product_price_variations' => [
                 'columns' => [
-                    'price' => ['type' => 'decimal(12,2)', 'null' => false, 'default' => '0.00'],
+                    'price' => ['type' => 'decimal(12,3)', 'null' => false, 'default' => '0.000'],
+                    'profit_percentage' => ['type' => 'decimal(8,3)', 'null' => true],
                 ],
                 'indexes' => [
                     // One price per (variation, user type): the Price matrix upserts on it,
@@ -68,7 +69,8 @@ class SchemaManifest
 
             'products_variations' => [
                 'columns' => [
-                    'price' => ['type' => 'decimal(12,2)', 'null' => false, 'default' => '0.00'],
+                    'price' => ['type' => 'decimal(12,3)', 'null' => false, 'default' => '0.000'],
+                    'profit_percentage' => ['type' => 'decimal(8,3)', 'null' => true],
                     // cost_price is deliberately absent: it stays DOUBLE so sub-cent
                     // Perfect-Panel unit costs are not rounded to zero.
                     // The supplier unit cost of record. `decimal` in cms_pages would
@@ -97,7 +99,7 @@ class SchemaManifest
                     // used to price two entire supplier catalogues.
                     'lbp_per_usd' => ['type' => 'decimal(20,4)', 'null' => true],
                     'usharez_lbp_per_usd' => ['type' => 'decimal(20,4)', 'null' => true],
-                    'default_profit_percentage' => ['type' => 'decimal(8,2)', 'null' => false, 'default' => '0.00'],
+                    'default_profit_percentage' => ['type' => 'decimal(8,3)', 'null' => false, 'default' => '0.000'],
                 ],
             ],
 
@@ -113,7 +115,7 @@ class SchemaManifest
                     // Money. The CMS can only express `decimal`, which means
                     // decimal(8,2) — a $999,999.99 ceiling. Restored to the real
                     // width here after every page save.
-                    'total_price' => ['type' => 'decimal(12,2)', 'null' => false, 'default' => '0.00'],
+                    'total_price' => ['type' => 'decimal(12,3)', 'null' => false, 'default' => '0.000'],
                     'credits_applied_status' => ['type' => 'tinyint(3) unsigned', 'null' => true],
                 ],
                 'indexes' => [

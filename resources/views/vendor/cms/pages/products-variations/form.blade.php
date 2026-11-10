@@ -158,13 +158,13 @@
             <div class="form-row">
                 <div class="form-group col-md-4 pe-mode-block" data-mode="percent">
                     @include('cms::components/form-fields/label', ['label' => 'Profit %', 'description' => 'Leave empty to use the default ' . $fmt($defaultProfit) . '% from Fixed Settings. The price follows the cost automatically.'])
-                    <input type="number" step="0.01" name="profit_percentage" id="pe-profit" class="form-control"
+                    <input type="number" step="0.001" name="profit_percentage" id="pe-profit" class="form-control"
                            value="{{ $fmt(isset($row) ? $row['profit_percentage'] : old('profit_percentage')) }}"
                            placeholder="default {{ $fmt($defaultProfit) }}">
                 </div>
                 <div class="form-group col-md-4 pe-mode-block" data-mode="fixed">
                     @include('cms::components/form-fields/label', ['label' => 'Price $', 'required' => true, 'description' => 'What customers pay. A fixed price never moves on its own, even when the cost changes.'])
-                    <input type="number" step="0.01" min="0" name="price" id="pe-price" class="form-control"
+                    <input type="number" step="0.001" min="0" name="price" id="pe-price" class="form-control"
                            value="{{ $fmt(isset($row) ? $row['price'] : old('price')) }}">
                 </div>
                 <div class="form-group col-md-4 d-flex align-items-end">
@@ -270,7 +270,7 @@
 
             // Same arithmetic as ProductsVariation::computeSellingPrice(); display only.
             function selling(c, pct) {
-                return Math.round(c * (1 + pct / 100) * 100) / 100;
+                return Math.round(c * (1 + pct / 100) * 1000) / 1000;
             }
 
             function render() {
@@ -291,7 +291,7 @@
                     p = parseFloat(price.value);
                 }
                 preview.textContent = p === null ? (m === 'percent' ? 'needs a cost price' : '—')
-                    : '$' + p.toFixed(2) + (unit > 1 ? ' per ' + unit.toLocaleString() + ' coins' : '');
+                    : '$' + p.toFixed(3) + (unit > 1 ? ' per ' + unit.toLocaleString() + ' coins' : '');
                 loss.hidden = !(p !== null && c !== null && p < c);
             }
 

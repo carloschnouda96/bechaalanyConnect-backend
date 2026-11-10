@@ -27,7 +27,7 @@ class OrderPresenter
             'product_name' => $variation?->product?->name,
             'variation_name' => $variation?->name,
             'quantity' => (int) $order->quantity,
-            'total_price' => round((float) $order->total_price, 2),
+            'total_price' => round((float) $order->total_price, 3),
             'recipient_user' => $order->recipient_user,
             'recipient_phone_number' => $order->recipient_phone_number,
             // Codes are only released once the order is completed, exactly as the
