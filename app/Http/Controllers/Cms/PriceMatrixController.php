@@ -110,7 +110,7 @@ class PriceMatrixController extends Controller
             'changes' => ['nullable', 'string', 'max:200000'],
             'bulk_ids' => ['nullable', 'string', 'max:20000'],
             'bulk_column' => ['nullable', Rule::in($this->pricing->columns())],
-            'bulk_mode' => ['nullable', Rule::in(['fixed', 'percent', 'clear', 'adjust'])],
+            'bulk_mode' => ['nullable', Rule::in(['fixed', 'price', 'percent', 'clear', 'adjust'])],
             'bulk_value' => ['nullable', 'numeric'],
         ]);
 

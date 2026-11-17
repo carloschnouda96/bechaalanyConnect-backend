@@ -58,6 +58,16 @@ class VariationPricing
         return array_merge([self::PUBLIC], array_map('strval', array_column($this->userTypes(), 'id')));
     }
 
+    /**
+     * The profit % (3 dp, the column's scale) that turns `$cost` into `$price` through
+     * ProductsVariation::computeSellingPrice(). Exact for costs under about 100; above
+     * that the stored price can differ from the typed one by less than 0.001.
+     */
+    public static function percentFor(float $price, float $cost): float
+    {
+        return round(($price / $cost - 1) * 100, 3);
+    }
+
     public function defaultProfit(): float
     {
         return (float) (FixedSetting::current()->default_profit_percentage ?? 0);
@@ -158,7 +168,7 @@ class VariationPricing
             if (in_array($change['mode'], ['percent', 'adjust'], true) && !$this->between($change['value'], -100, 10000)) {
                 $errors[] = 'Profit % must be between -100 and 10000.';
             }
-            if ($change['mode'] === 'fixed' && !$this->between($change['value'], 0, 1000000)) {
+            if (in_array($change['mode'], ['fixed', 'price'], true) && !$this->between($change['value'], 0, 1000000)) {
                 $errors[] = 'A fixed price must be a number of 0 or more.';
             }
         }
@@ -214,6 +224,20 @@ class VariationPricing
     public function applyCell(ProductsVariation $variation, array $change)
     {
         $label = $variation->slug;
+
+        // "price": the admin typed the selling price. With a cost it is stored as the
+        // profit % that yields it, so later cost changes reprice it. Without one there is
+        // nothing to derive from and it is kept as a fixed price.
+        if ($change['mode'] === 'price') {
+            $cost = self::costOf($variation);
+
+            if ($cost === null || $cost <= 0) {
+                $change['mode'] = 'fixed';
+            } else {
+                $change['mode'] = 'percent';
+                $change['value'] = self::percentFor((float) $change['value'], $cost);
+            }
+        }
 
         if ($change['mode'] === 'percent' && self::costOf($variation) === null) {
             return "{$label}: no cost price recorded, so a profit % cannot apply — set a fixed price instead.";
@@ -350,7 +374,7 @@ class VariationPricing
         return collect(is_array($decoded) ? $decoded : [])
             ->filter(fn ($c) => is_array($c)
                 && isset($c['variation_id'], $c['column'], $c['mode'])
-                && in_array($c['mode'], ['fixed', 'percent', 'clear'], true)
+                && in_array($c['mode'], ['fixed', 'price', 'percent', 'clear'], true)
                 && ($c['mode'] === 'clear' || is_numeric($c['value'] ?? null)))
             ->take(2000)
             ->map(fn ($c) => [

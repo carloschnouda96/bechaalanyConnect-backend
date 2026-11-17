@@ -17,7 +17,8 @@
     <div class="d-flex">
         <select class="form-control form-control-sm pm-mode regular-select mr-1" aria-label="Pricing mode">
             <option value="clear" {{ $cell['mode'] === 'clear' || ($column === 'public' && ($cell['inherits_default'] ?? false)) ? 'selected' : '' }}>—</option>
-            <option value="fixed" {{ $cell['mode'] === 'fixed' ? 'selected' : '' }}>$</option>
+            <option value="price" {{ $cost === null ? 'disabled' : '' }} title="Type the selling price; the profit % is worked out and saved">$ → %</option>
+            <option value="fixed" {{ $cell['mode'] === 'fixed' ? 'selected' : '' }} title="Locked price: does not follow cost changes">Lock $</option>
             <option value="percent" {{ $cell['mode'] === 'percent' && !($cell['inherits_default'] ?? false) ? 'selected' : '' }} {{ $cost === null ? 'disabled' : '' }}>%</option>
         </select>
         <input type="number" step="0.0001" class="form-control form-control-sm pm-value" value="{{ $fmt($cell['value']) }}" aria-label="Price value">

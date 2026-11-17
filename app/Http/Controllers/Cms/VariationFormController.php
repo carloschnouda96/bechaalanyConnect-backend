@@ -126,7 +126,7 @@ class VariationFormController extends Controller
         }
 
         $request->validate([
-            'pricing_mode' => ['required', Rule::in(['percent', 'fixed'])],
+            'pricing_mode' => ['required', Rule::in(['percent', 'fixed', 'price'])],
             'cost_price' => ['nullable', 'numeric', 'min:0'],
             'profit_percentage' => ['nullable', 'numeric', 'between:-100,10000'],
             'price' => ['nullable', 'numeric', 'min:0'],
@@ -146,7 +146,7 @@ class VariationFormController extends Controller
             ]);
         }
 
-        if ($mode === 'fixed' && !$request->filled('price')) {
+        if (in_array($mode, ['fixed', 'price'], true) && !$request->filled('price')) {
             throw ValidationException::withMessages([
                 'price' => 'Enter the fixed price customers pay.',
             ]);
@@ -157,6 +157,17 @@ class VariationFormController extends Controller
 
     private function applyMode(ProductsVariation $variation, string $mode, Request $request): void
     {
+        if ($mode === 'price') {
+            $cost = VariationPricing::costOf($variation);
+
+            if ($cost !== null && $cost > 0) {
+                $this->pricing->applyPublic($variation, 'percent', VariationPricing::percentFor((float) $request->input('price'), $cost));
+
+                return;
+            }
+            $mode = 'fixed';
+        }
+
         if ($mode === 'fixed') {
             $this->pricing->applyPublic($variation, 'fixed', (float) $request->input('price'));
 

@@ -29,8 +29,8 @@
     <p class="text-muted">
         Each variation is one amount this product is sold in (e.g. "100 UC"). <strong>Public</strong> is what
         guests and regular accounts pay; each user-type column overrides it for that type only
-        (<strong>—</strong> = pays the public price). Choose <strong>$</strong> for a fixed price or
-        <strong>%</strong> for a profit on cost. Public <strong>—</strong> uses the default {{ $fmt($editor['default_profit']) }}% from Fixed Settings.
+        (<strong>—</strong> = pays the public price). Choose <strong>$ → %</strong> to type the selling price (the profit % on cost is worked out and saved, so it follows supplier cost changes),
+        <strong>%</strong> to enter the profit directly, or <strong>Lock $</strong> for a price that never changes. Public <strong>—</strong> uses the default {{ $fmt($editor['default_profit']) }}% from Fixed Settings.
     </p>
 
     @unless ($editor['for_sale'])
@@ -140,7 +140,7 @@
             <div class="form-group col-md-2">
                 <label class="font-weight-bold">Price as</label>
                 <select name="pricing_mode" class="form-control regular-select">
-                    <option value="fixed" {{ old('pricing_mode') !== 'percent' ? 'selected' : '' }}>Fixed price $</option>
+                    <option value="price" {{ old('pricing_mode') !== 'percent' ? 'selected' : '' }}>Price $ (saves as profit %)</option>
                     <option value="percent" {{ old('pricing_mode') === 'percent' ? 'selected' : '' }}>Profit % on cost</option>
                 </select>
             </div>
