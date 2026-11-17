@@ -15,7 +15,7 @@
     /* Supplier names run to 200+ characters; they wrap instead of widening the grid. */
     html body #content .pm-table td.pm-name { white-space: normal; min-width: 220px; max-width: 320px; }
     html body #content .pm-table tr.pm-group td { white-space: normal; }
-    html body #content .pm-table td .pm-mode { width: 52px; min-width: 0; padding: 0 4px; }
+    html body #content .pm-table td .pm-mode { width: 78px; min-width: 0; padding: 0 4px; }
     html body #content .pm-table td .pm-value { width: 92px; min-width: 0; }
     html body #content .pm-table td .pm-check, html body #content .pm-table td .pm-product-check { min-width: 0; width: auto; }
     .pm-cell.pm-dirty { background: rgba(255, 193, 7, .15); }
@@ -66,7 +66,7 @@
             var note = '';
 
             input.disabled = s.mode === 'clear';
-            input.placeholder = s.mode === 'percent' ? '%' : (s.mode === 'fixed' ? '$' : '');
+            input.placeholder = s.mode === 'percent' ? '%' : (s.mode === 'clear' ? '' : '$');
 
             if (s.mode === 'clear') {
                 input.value = '';
@@ -81,6 +81,9 @@
             } else if (s.value !== '') {
                 var v = parseFloat(s.value);
                 price = s.mode === 'percent' ? (cost === '' ? null : selling(parseFloat(cost), v)) : v;
+                if (s.mode === 'price' && cost !== '' && parseFloat(cost) > 0) {
+                    note = ' → ' + (Math.round((v / parseFloat(cost) - 1) * 100000) / 1000) + '% on cost ' + cost;
+                }
             }
 
             // Untouched cells show the price actually stored — what customers are charged

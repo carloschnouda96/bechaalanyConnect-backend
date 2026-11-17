@@ -104,7 +104,8 @@
                     <label class="font-weight-bold">Action</label>
                     <select name="bulk_mode" class="form-control" id="pm-bulk-mode" required>
                         <option value="percent">Set profit % on cost</option>
-                        <option value="fixed">Set fixed price $</option>
+                        <option value="price">Set price $ (saves as profit %)</option>
+                        <option value="fixed">Set locked price $ (ignores cost changes)</option>
                         <option value="clear">Clear (use public / default)</option>
                         <option value="adjust">Adjust current price by % (Public, manual products only)</option>
                     </select>

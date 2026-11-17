@@ -39,7 +39,7 @@
         $cell = $pricing->publicCell($row, \App\Services\Cms\VariationPricing::costOf($row), $defaultProfit);
         $mode = $cell['mode'];
     } else {
-        $mode = 'fixed';
+        $mode = 'price';
     }
 @endphp
 
@@ -150,8 +150,12 @@
                     <label class="custom-control-label" for="pe-mode-percent">Profit % on cost</label>
                 </div>
                 <div class="custom-control custom-radio custom-control-inline">
+                    <input type="radio" id="pe-mode-price" name="pricing_mode" value="price" class="custom-control-input" {{ $mode === 'price' ? 'checked' : '' }}>
+                    <label class="custom-control-label" for="pe-mode-price">Selling price $ (profit % is saved)</label>
+                </div>
+                <div class="custom-control custom-radio custom-control-inline">
                     <input type="radio" id="pe-mode-fixed" name="pricing_mode" value="fixed" class="custom-control-input" {{ $mode === 'fixed' ? 'checked' : '' }}>
-                    <label class="custom-control-label" for="pe-mode-fixed">Fixed price</label>
+                    <label class="custom-control-label" for="pe-mode-fixed">Locked price (ignores cost changes)</label>
                 </div>
             </div>
 
@@ -162,8 +166,8 @@
                            value="{{ $fmt(isset($row) ? $row['profit_percentage'] : old('profit_percentage')) }}"
                            placeholder="default {{ $fmt($defaultProfit) }}">
                 </div>
-                <div class="form-group col-md-4 pe-mode-block" data-mode="fixed">
-                    @include('cms::components/form-fields/label', ['label' => 'Price $', 'required' => true, 'description' => 'What customers pay. A fixed price never moves on its own, even when the cost changes.'])
+                <div class="form-group col-md-4 pe-mode-block" data-mode="price fixed">
+                    @include('cms::components/form-fields/label', ['label' => 'Price $', 'required' => true, 'description' => 'What customers pay. With "Selling price" the profit % on cost is worked out and saved, so the price follows the cost; "Locked" never moves.'])
                     <input type="number" step="0.001" min="0" name="price" id="pe-price" class="form-control"
                            value="{{ $fmt(isset($row) ? $row['price'] : old('price')) }}">
                 </div>
@@ -256,7 +260,7 @@
 
             function mode() {
                 var checked = document.querySelector('input[name="pricing_mode"]:checked');
-                return checked ? checked.value : 'fixed';
+                return checked ? checked.value : 'price';
             }
 
             function productType() {
@@ -275,7 +279,7 @@
 
             function render() {
                 var m = mode();
-                each('.pe-mode-block', function (el) { el.classList.toggle('pe-hidden', el.dataset.mode !== m); });
+                each('.pe-mode-block', function (el) { el.classList.toggle('pe-hidden', el.dataset.mode.split(' ').indexOf(m) === -1); });
                 // Coin fields stay in the form (the vendor save nulls anything missing) —
                 // they are only hidden for other product types.
                 each('.pe-coin', function (el) { el.classList.toggle('pe-hidden', productType() !== coinTypeId); });

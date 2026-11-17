@@ -130,7 +130,7 @@ class ProductEditorController extends Controller
             "name.{$primary}" => ['required', 'string', 'max:191'],
             'name.*' => ['nullable', 'string', 'max:191'],
             'cost_price' => ['required', 'numeric', 'min:0', 'max:1000000'],
-            'pricing_mode' => ['required', Rule::in(['fixed', 'percent'])],
+            'pricing_mode' => ['required', Rule::in(['fixed', 'price', 'percent'])],
             'pricing_value' => ['required', 'numeric', 'min:-100', 'max:1000000'],
         ], [
             "name.{$primary}.required" => 'Give the variation a name (e.g. "100 UC").',
@@ -141,7 +141,7 @@ class ProductEditorController extends Controller
         $cost = (float) $data['cost_price'];
         $value = (float) $data['pricing_value'];
 
-        if ($data['pricing_mode'] === 'fixed' && $value < 0) {
+        if (in_array($data['pricing_mode'], ['fixed', 'price'], true) && $value < 0) {
             return $this->backToVariations($product)->withInput()->withErrors([
                 'quick_add' => 'A fixed price must be 0 or more.',
             ]);
@@ -161,7 +161,11 @@ class ProductEditorController extends Controller
             // Same end state VariationPricing::applyPublic() leaves: a fixed price is
             // locked (manual_price); a % is stored and ProductsVariationObserver::creating
             // derives the price from cost.
-            if ($data['pricing_mode'] === 'fixed') {
+            // 'price' = the admin typed the selling price: store the % that yields it
+            // (cost is required here and 0 is refused below, so there is always one).
+            if ($data['pricing_mode'] === 'price' && $cost > 0) {
+                $variation->profit_percentage = VariationPricing::percentFor($value, $cost);
+            } elseif (in_array($data['pricing_mode'], ['fixed', 'price'], true)) {
                 $variation->price = $value;
                 $variation->manual_price = true;
             } else {
