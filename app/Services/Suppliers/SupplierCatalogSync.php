@@ -100,6 +100,14 @@ use Illuminate\Support\Str;
  * which keeps its id, and with it every `orders.product_variation_id` pointing
  * at it.
  *
+ * PLACEMENT
+ * ---------
+ * A product's `subcategory_id` follows its supplier category's mapping on every
+ * run, until an admin moves the product somewhere else in the CMS. That sets
+ * `products.manual_subcategory` (App\Observers\ProductObserver) and the sync
+ * stops re-placing it, so a mixed supplier category can be split by brand.
+ * Withdrawal and stock still apply: they match on external_source/external_id.
+ *
  * MAPPED CATEGORIES
  * -----------------
  * Setting `supplier_categories.product_id` imports every row of the category as
@@ -316,10 +324,15 @@ class SupplierCatalogSync
         // NOTE: $product->image is deliberately not touched on update — an admin's
         // CMS upload must survive every re-sync. See ensureLocalTree() for the same
         // rule applied to categories.
-        $product->subcategory_id = $subcategory->id;
+        // Sync-owned until an admin moves the product to another subcategory
+        // (e.g. a "Canva" brand subcategory); ProductObserver then sets
+        // manual_subcategory and the product stays where they put it.
+        if (!$product->manual_subcategory) {
+            $product->subcategory_id = $subcategory->id;
+        }
         $product->supplier_status = $dto->available ? Product::SUPPLIER_AVAILABLE : Product::SUPPLIER_OUT_OF_STOCK;
         $product->cms_draft_flag = 0;
-        $product->save();
+        Product::applyingSystemPlacement(fn () => $product->save());
 
         // Single variation per supplier product.
         $variation = $this->upsertVariation($product, $dto, $source);
@@ -420,7 +433,8 @@ class SupplierCatalogSync
      * Everything an admin can see is seeded ONCE and never re-written: name,
      * product type and image belong to whoever curates the storefront, exactly as
      * `$product->image` already does on the per-product path. Only `subcategory_id`
-     * is re-asserted, so re-mapping the category in the CMS still moves the product.
+     * is re-asserted, so re-mapping the category in the CMS still moves the product
+     * — unless an admin moved it by hand (`manual_subcategory`).
      */
     private function ensureGroupProduct(
         SupplierCategory $supplierCategory,
@@ -470,9 +484,11 @@ class SupplierCatalogSync
             $this->setTranslations($product, ['name' => $name, 'description' => '']);
         }
 
-        $product->subcategory_id = $subcategory->id;
+        if (!$product->manual_subcategory) {
+            $product->subcategory_id = $subcategory->id;
+        }
         $product->cms_draft_flag = 0;
-        $product->save();
+        Product::applyingSystemPlacement(fn () => $product->save());
 
         return $this->groupProducts[$supplierCategory->id] = $product;
     }

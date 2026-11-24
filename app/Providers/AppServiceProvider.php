@@ -60,6 +60,10 @@ class AppServiceProvider extends ServiceProvider
         // code path) edits it directly — see the observer's docblock.
         ProductsVariation::observe(ProductsVariationObserver::class);
 
+        // Locks a supplier product's subcategory once an admin moves it, so the
+        // catalog sync stops moving it back (products.manual_subcategory).
+        \App\Product::observe(\App\Observers\ProductObserver::class);
+
         // Resolves a user-type price in profit-% mode to cost x (1 + %), so
         // product_price_variations.price is always what the tier is charged.
         \App\ProductPriceVariation::observe(\App\Observers\ProductPriceVariationObserver::class);

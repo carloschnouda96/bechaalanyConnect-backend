@@ -138,5 +138,31 @@ class Product extends Model  implements TranslatableContract
 
     public $appends = ['full_path'];
 
+    protected $casts = [
+        'manual_subcategory' => 'boolean',
+    ];
+
+    /**
+     * Guards SupplierCatalogSync's own placement writes so ProductObserver doesn't
+     * mistake the sync moving a product for an admin moving it and lock the row.
+     */
+    private static bool $applyingSystemPlacement = false;
+
+    public static function applyingSystemPlacement(callable $callback)
+    {
+        $previous = self::$applyingSystemPlacement;
+        self::$applyingSystemPlacement = true;
+        try {
+            return $callback();
+        } finally {
+            self::$applyingSystemPlacement = $previous;
+        }
+    }
+
+    public static function isApplyingSystemPlacement(): bool
+    {
+        return self::$applyingSystemPlacement;
+    }
+
     /* End custom functions */
 }

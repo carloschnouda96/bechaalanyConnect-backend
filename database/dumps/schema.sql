@@ -931,6 +931,7 @@ CREATE TABLE `products` (
   `slug` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `image` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `subcategory_id` int(10) unsigned NOT NULL,
+  `manual_subcategory` tinyint(1) DEFAULT '0',
   `is_active` int(11) DEFAULT NULL,
   `product_type_id` int(10) unsigned NOT NULL,
   `external_source` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
