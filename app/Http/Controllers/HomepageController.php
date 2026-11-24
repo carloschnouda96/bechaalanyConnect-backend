@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\BannerSwiper;
-use App\Category;
 use App\HomepageSetting;
 use App\Product;
 use App\SeoPage;
@@ -17,7 +16,10 @@ class HomepageController extends Controller
     {
         $bannerSwiper = BannerSwiper::orderBy('ht_pos')->get();
         $homepageSettings = HomepageSetting::first();
-        $categories = Category::where('is_active', 1)->get()->take(6);
+        // Chosen and ordered in the CMS (Homepage Settings → Homepage categories).
+        $categories = $homepageSettings
+            ? $homepageSettings->homepage_categories()->where('categories.is_active', 1)->get()->makeHidden('pivot')
+            : collect();
         $latest_products = Product::orderBy('created_at', 'desc')->listable()->take(4)->get();
         $seo = SeoPage::where('slug', 'home')->first();
 

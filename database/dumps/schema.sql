@@ -650,6 +650,23 @@ CREATE TABLE `fixed_settings_translations` (
   CONSTRAINT `translatable_id_1747059873` FOREIGN KEY (`fixed_setting_id`) REFERENCES `fixed_settings` (`id`) ON DELETE CASCADE
 ) ENGINE=InnoDB AUTO_INCREMENT=3 DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 /*!40101 SET character_set_client = @saved_cs_client */;
+DROP TABLE IF EXISTS `homepage_category_homepage_setting`;
+/*!40101 SET @saved_cs_client     = @@character_set_client */;
+/*!50503 SET character_set_client = utf8mb4 */;
+CREATE TABLE `homepage_category_homepage_setting` (
+  `id` int(10) unsigned NOT NULL AUTO_INCREMENT,
+  `category_id` int(10) unsigned NOT NULL,
+  `homepage_setting_id` int(10) unsigned NOT NULL,
+  `ht_pos` int(10) unsigned DEFAULT NULL,
+  `created_at` timestamp NULL DEFAULT NULL,
+  `updated_at` timestamp NULL DEFAULT NULL,
+  PRIMARY KEY (`id`),
+  KEY `homepage_category_homepage_setting_category_id_foreign` (`category_id`),
+  KEY `homepage_category_homepage_setting_homepage_setting_id_foreign` (`homepage_setting_id`),
+  CONSTRAINT `homepage_category_homepage_setting_category_id_foreign` FOREIGN KEY (`category_id`) REFERENCES `categories` (`id`) ON DELETE CASCADE,
+  CONSTRAINT `homepage_category_homepage_setting_homepage_setting_id_foreign` FOREIGN KEY (`homepage_setting_id`) REFERENCES `homepage_settings` (`id`) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+/*!40101 SET character_set_client = @saved_cs_client */;
 DROP TABLE IF EXISTS `homepage_settings`;
 /*!40101 SET @saved_cs_client     = @@character_set_client */;
 /*!50503 SET character_set_client = utf8mb4 */;
