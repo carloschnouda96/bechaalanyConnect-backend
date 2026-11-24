@@ -115,6 +115,11 @@ Route::prefix(config('hellotree.cms_route_prefix'))->middleware(['admin'])->grou
     Route::post('/products', 'App\Http\Controllers\Cms\ProductEditorController@store');
     Route::post('/products/{id}/variations', 'App\Http\Controllers\Cms\ProductEditorController@addVariation')->whereNumber('id');
     Route::put('/products/{id}/prices', 'App\Http\Controllers\Cms\ProductEditorController@prices')->whereNumber('id');
+    // "Add supplier plans": gather supplier variations into a product staff created
+    // (VariationPlacementObserver locks each one there), and send one back.
+    Route::get('/products/{id}/attachable-variations', 'App\Http\Controllers\Cms\ProductEditorController@attachableVariations')->whereNumber('id');
+    Route::put('/products/{id}/variations/attach', 'App\Http\Controllers\Cms\ProductEditorController@attachVariations')->whereNumber('id');
+    Route::put('/products/{id}/variations/{variation}/release', 'App\Http\Controllers\Cms\ProductEditorController@releaseVariation')->whereNumber(['id', 'variation']);
 
     // Variation form save: vendor save, then the form's one pricing choice applied
     // through VariationPricing (Cms\VariationFormController). whereNumber keeps the

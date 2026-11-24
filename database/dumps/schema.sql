@@ -975,6 +975,7 @@ CREATE TABLE `products_variations` (
   `slug` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `image` varchar(191) COLLATE utf8mb4_unicode_ci DEFAULT NULL,
   `product_id` int(10) unsigned DEFAULT NULL,
+  `manual_product` tinyint(1) DEFAULT '0',
   `is_active` int(11) DEFAULT NULL,
   `price` decimal(12,3) NOT NULL DEFAULT '0.000',
   `manual_price` tinyint(1) DEFAULT '0',

@@ -108,6 +108,13 @@ use Illuminate\Support\Str;
  * stops re-placing it, so a mixed supplier category can be split by brand.
  * Withdrawal and stock still apply: they match on external_source/external_id.
  *
+ * The same holds one level down: a supplier VARIATION an admin moves onto a
+ * product of their own (all of Swift's "YouTube …" rows as plans of one "YouTube"
+ * product) sets `products_variations.manual_product`
+ * (App\Observers\VariationPlacementObserver). upsertLockedVariation() then keeps
+ * syncing it in place and stops maintaining its old per-row product, and
+ * reconcileMappedVariations() withdraws it if the feed drops it.
+ *
  * MAPPED CATEGORIES
  * -----------------
  * Setting `supplier_categories.product_id` imports every row of the category as
@@ -282,12 +289,20 @@ class SupplierCatalogSync
      */
     private function upsertProduct(SupplierProduct $dto, SupplierCategory $supplierCategory, string $source): array
     {
+        $existing = $this->findVariation($dto->externalId, $source);
+
+        // An admin moved this row onto a product of their own (manual_product):
+        // it stays there whatever the category's mode, and no shell is kept for it.
+        if ($existing && $existing->manual_product) {
+            return $this->upsertLockedVariation($dto, $existing, $source);
+        }
+
         if ($supplierCategory->product_id) {
-            return $this->upsertMappedVariation($dto, $supplierCategory, $source);
+            return $this->upsertMappedVariation($dto, $supplierCategory, $source, $existing);
         }
 
         if ($supplierCategory->group_as_single_product) {
-            return $this->upsertGroupedVariation($dto, $supplierCategory, $source);
+            return $this->upsertGroupedVariation($dto, $supplierCategory, $source, $existing);
         }
 
         $externalId = $dto->externalId;
@@ -335,7 +350,7 @@ class SupplierCatalogSync
         Product::applyingSystemPlacement(fn () => $product->save());
 
         // Single variation per supplier product.
-        $variation = $this->upsertVariation($product, $dto, $source);
+        $variation = $this->upsertVariation($product, $dto, $source, $existing);
 
         return [
             'status' => $isNew ? 'created' : 'updated',
@@ -353,13 +368,13 @@ class SupplierCatalogSync
      *
      * @return array{status:string,price_changed:bool}
      */
-    private function upsertGroupedVariation(SupplierProduct $dto, SupplierCategory $supplierCategory, string $source): array
+    private function upsertGroupedVariation(SupplierProduct $dto, SupplierCategory $supplierCategory, string $source, ?ProductsVariation $existing): array
     {
         [$category, $subcategory] = $this->ensureLocalTree($supplierCategory, $source);
 
         $product = $this->ensureGroupProduct($supplierCategory, $dto, $subcategory, $source);
 
-        $variation = $this->upsertVariation($product, $dto, $source);
+        $variation = $this->upsertVariation($product, $dto, $source, $existing);
 
         return [
             'status' => $variation['created'] ? 'created' : 'updated',
@@ -376,7 +391,7 @@ class SupplierCatalogSync
      *
      * @return array{status:string,price_changed:bool}
      */
-    private function upsertMappedVariation(SupplierProduct $dto, SupplierCategory $supplierCategory, string $source): array
+    private function upsertMappedVariation(SupplierProduct $dto, SupplierCategory $supplierCategory, string $source, ?ProductsVariation $existing): array
     {
         $product = $supplierCategory->product;
 
@@ -411,12 +426,52 @@ class SupplierCatalogSync
             ));
         }
 
-        $variation = $this->upsertVariation($product, $dto, $source);
+        $variation = $this->upsertVariation($product, $dto, $source, $existing);
 
         return [
             'status' => $variation['created'] ? 'created' : 'updated',
             'price_changed' => $variation['price_changed'] && !$variation['created'],
         ];
+    }
+
+    /**
+     * A row an admin moved onto a product of their own (`manual_product`, set by
+     * VariationPlacementObserver): every Swift "YouTube …" row as a plan of one
+     * "YouTube" product. Cost, price and stock keep syncing where it is; its old
+     * per-row product is no longer maintained, so staff may switch it off or
+     * delete it, and unticking the lock rebuilds it on the next run.
+     *
+     * The same type check as a mapped category: staff can change the parent's
+     * type after the move, and the type decides which recipient field the
+     * storefront collects.
+     *
+     * @return array{status:string,price_changed:bool}
+     */
+    private function upsertLockedVariation(SupplierProduct $dto, ProductsVariation $variation, string $source): array
+    {
+        $product = Product::withoutGlobalScope('cms_draft_flag')->find($variation->product_id);
+
+        if (!$product) {
+            throw new \RuntimeException(sprintf(
+                'Variation #%d is kept in product #%d, which no longer exists.',
+                $variation->id,
+                $variation->product_id
+            ));
+        }
+
+        if ((int) $product->product_type_id !== (int) $dto->productTypeId) {
+            throw new \RuntimeException(sprintf(
+                'Variation #%d is kept in product #%d of type %d, but its supplier row needs type %d.',
+                $variation->id,
+                $product->id,
+                (int) $product->product_type_id,
+                (int) $dto->productTypeId
+            ));
+        }
+
+        $result = $this->upsertVariation($product, $dto, $source, $variation);
+
+        return ['status' => 'updated', 'price_changed' => $result['price_changed']];
     }
 
     /**
@@ -507,13 +562,12 @@ class SupplierCatalogSync
     private function upsertVariation(
         Product $product,
         SupplierProduct $dto,
-        string $source
+        string $source,
+        ?ProductsVariation $variation
     ): array {
         $externalId = $dto->externalId;
         $name = trim($dto->name) ?: 'Product'; // never the id: this becomes a public name and slug
         $cost = $dto->unitCost;
-
-        $variation = $this->findVariation($externalId, $source);
 
         $isNew = $variation === null;
         if ($isNew) {
@@ -552,7 +606,11 @@ class SupplierCatalogSync
             }
         }
 
-        $variation->product_id = $product->id;
+        // A row an admin moved (manual_product) already sits under $product, which
+        // upsertLockedVariation() passed in; this never moves it anywhere else.
+        if (!$variation->manual_product) {
+            $variation->product_id = $product->id;
+        }
         // Who fulfils it travels with the variation, not the parent: a mapped
         // category's parent is an admin product with no external_source.
         $variation->external_source = $source;
@@ -597,7 +655,9 @@ class SupplierCatalogSync
             ? Product::SUPPLIER_AVAILABLE
             : Product::SUPPLIER_OUT_OF_STOCK;
         $variation->cms_draft_flag = 0;
-        ProductsVariation::applyingSystemPricing(fn () => $variation->save());
+        Product::applyingSystemPlacement(
+            fn () => ProductsVariation::applyingSystemPricing(fn () => $variation->save())
+        );
 
         return ['created' => $isNew, 'price_changed' => $priceChanged];
     }
@@ -904,9 +964,10 @@ class SupplierCatalogSync
     /**
      * The mapped-category equivalent of reconcileGroupedCategories(): this
      * supplier's variations sitting under admin-made products (parent
-     * `external_source` NULL) that no enabled, mapped category listed this run
-     * become WITHDRAWN. One query covers a row dropped from the feed, a category
-     * whose import was disabled, and a mapping cleared while import was off.
+     * `external_source` NULL) — mapped there by a category, or moved there by an
+     * admin (`manual_product`) — that no enabled category listed this run become
+     * WITHDRAWN. One query covers a row dropped from the feed, a category whose
+     * import was disabled, and a mapping cleared while import was off.
      * A row whose mapping was cleared while still enabled was already moved back
      * to its own product by upsertVariation() and is no longer under such a parent.
      *
@@ -923,10 +984,13 @@ class SupplierCatalogSync
             return 0;
         }
 
+        // Every row of an enabled category, whatever its mode. By now this run has
+        // already moved each unlocked row back under its own product, so a row still
+        // under an admin product is either mapped or locked there by an admin
+        // (manual_product) — and both stay alive while the feed lists them.
         $keepExternalIds = [];
         foreach ($products as $dto) {
-            $supplierCategory = $enabled->get($dto->categoryExternalId);
-            if ($supplierCategory && $supplierCategory->product_id) {
+            if ($enabled->get($dto->categoryExternalId)) {
                 $keepExternalIds[] = $dto->externalId;
             }
         }
