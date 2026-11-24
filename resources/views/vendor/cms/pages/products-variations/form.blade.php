@@ -18,7 +18,7 @@
     $coinTypeId = 4; // product_type "coin-recharge" — see Coin Recharge products
 
     $byName = collect($page_fields)->keyBy('name');
-    $special = ['product_id', 'price', 'cost_price', 'profit_percentage', 'unit_amount', 'min_quantity', 'max_quantity', 'slug'];
+    $special = ['product_id', 'manual_product', 'price', 'cost_price', 'profit_percentage', 'unit_amount', 'min_quantity', 'max_quantity', 'slug'];
     $details = collect($page_fields)->reject(fn ($f) => in_array($f['name'], $special, true))
         ->merge($byName->has('slug') ? [$byName['slug']] : [])
         ->values();
@@ -100,13 +100,27 @@
                     <select class="form-control" name="product_id" id="pe-product">
                         <option></option>
                         @foreach ($products as $option)
-                            <option value="{{ $option->id }}" data-type="{{ $option->product_type_id }}" {{ (string) $productId === (string) $option->id ? 'selected' : '' }}>
+                            @php
+                                // A supplier row may only move into a product staff created, or
+                                // back onto its own supplier product (VariationPlacementObserver).
+                                $ownHome = isset($row) && $option->external_source === ($row['external_source'] ?? null)
+                                    && (string) $option->external_id === (string) ($row['external_id'] ?? '');
+                                $blocked = isset($row) && $isSupplier && filled($option->external_source) && !$ownHome
+                                    && (string) $productId !== (string) $option->id;
+                            @endphp
+                            <option value="{{ $option->id }}" data-type="{{ $option->product_type_id }}" {{ (string) $productId === (string) $option->id ? 'selected' : '' }} {{ $blocked ? 'disabled' : '' }}>
                                 {{ strip_tags($option->name ?: $option->slug) }}{{ $option->external_source ? ' (' . $option->external_source . ')' : '' }}
                             </option>
                         @endforeach
                     </select>
                 @endif
             </div>
+            {{-- Rendered for supplier rows only, and always when shown: the vendor save
+                 writes 0 for a checkbox missing from the request, which would unlock it. --}}
+            @if (isset($row) && $isSupplier && $byName->has('manual_product'))
+                @php $field = $byName['manual_product']; @endphp
+                @include('cms::pages/cms-page/form-fields', ['locale' => null])
+            @endif
 
             {{-- 2 · Name / description --}}
             @if (count($page_translatable_fields))

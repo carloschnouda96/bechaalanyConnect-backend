@@ -15,7 +15,7 @@
 
     // Order of the non-translated fields. Anything not listed keeps its schema order
     // after these; the slug always goes last.
-    $preferred = ['subcategory_id', 'product_type_id', 'image', 'is_active', 'related_products'];
+    $preferred = ['subcategory_id', 'manual_subcategory', 'product_type_id', 'image', 'is_active', 'related_products'];
     $byName = collect($page_fields)->keyBy('name');
     $ordered = collect($preferred)->filter(fn ($name) => $byName->has($name))->map(fn ($name) => $byName[$name])
         ->merge(collect($page_fields)->reject(fn ($f) => in_array($f['name'], $preferred, true) || $f['name'] === 'slug'))
@@ -86,6 +86,8 @@
 
             <p class="pe-section-title font-weight-bold text-uppercase text-muted mb-2 mt-2">Where and how it is sold</p>
             @foreach ($ordered as $field)
+                {{-- The placement lock only means something for a supplier product. --}}
+                @continue($field['name'] == 'manual_subcategory' && !$supplierSource)
                 @if ($field['name'] == 'slug' && (isset($row) && (isset($row['cms_draft_flag']) && $row['cms_draft_flag'] == 1)))
                     @php
                         $field['form_field_additionals_2'] = 1;

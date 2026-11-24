@@ -54,6 +54,8 @@ class ProductEditorController extends Controller
             'is_active' => (bool) $variation->is_active,
             'draft' => (int) $variation->cms_draft_flag === 1,
             'supplier_status' => $variation->supplier_status,
+            // Moved here by staff from its own supplier product (Send back undoes it).
+            'locked' => (bool) $variation->manual_product,
             // Only worth a badge on an admin product a supplier category is mapped
             // into; on an imported product every row is the supplier's anyway.
             'source' => filled($product->external_source) || !$variation->external_id
@@ -214,6 +216,140 @@ class ProductEditorController extends Controller
         return $this->backToVariations($product)
             ->with('success', "{$result['changed']} price(s) updated." . ($result['skipped'] ? ' ' . count($result['skipped']) . ' skipped.' : ''))
             ->with('price_matrix_skipped', $result['skipped']);
+    }
+
+    /**
+     * Supplier variations that "Add supplier plans" may move into this product: rows
+     * still under their own supplier product (never one already gathered under
+     * another admin product), of this product's type, matching the search. JSON for
+     * the select2 on the Variations card.
+     *
+     * GET under /products: the Products `read` right.
+     */
+    public function attachableVariations(Request $request, $id)
+    {
+        $product = Product::withoutGlobalScope('cms_draft_flag')->findOrFail($id);
+        $term = trim((string) $request->query('q', ''));
+
+        if (filled($product->external_source) || mb_strlen($term) < 2) {
+            return response()->json(['results' => []]);
+        }
+
+        $locale = app()->getLocale();
+        $like = '%' . str_replace(['\\', '%', '_'], ['\\\\', '\\%', '\\_'], $term) . '%';
+
+        $results = $this->attachableQuery($product)
+            ->where(fn ($q) => $q->where('slug', 'like', $like)
+                ->orWhereHas('translations', fn ($t) => $t->where('name', 'like', $like)))
+            ->with(['translations', 'product' => fn ($q) => $q->withoutGlobalScope('cms_draft_flag')->with('translations')])
+            ->orderBy('ht_pos')
+            ->limit(50)
+            ->get()
+            ->map(function (ProductsVariation $variation) use ($locale) {
+                $name = optional($variation->translate($locale))->name ?: $variation->slug;
+                $from = optional(optional($variation->product)->translate($locale))->name;
+                $status = $variation->supplier_status && $variation->supplier_status !== Product::SUPPLIER_AVAILABLE
+                    ? ' · ' . str_replace('_', ' ', $variation->supplier_status)
+                    : '';
+
+                return [
+                    'id' => $variation->id,
+                    'text' => strip_tags($name) . ' (' . $variation->supplierSource() . ($from && $from !== $name ? ' · from "' . strip_tags($from) . '"' : '') . $status . ')',
+                ];
+            });
+
+        return response()->json(['results' => $results->values()]);
+    }
+
+    /**
+     * "Add supplier plans": move the picked supplier variations into this product,
+     * e.g. every Swift "YouTube …" row into one "YouTube" product so the storefront
+     * shows them as one plan dropdown. Each save goes through Eloquent, so
+     * VariationPlacementObserver locks it here (manual_product) and the catalog sync
+     * keeps its cost, price and stock current in place. All or nothing.
+     *
+     * PUT under /products: the Products `edit` right.
+     */
+    public function attachVariations(Request $request, $id)
+    {
+        $product = Product::withoutGlobalScope('cms_draft_flag')->findOrFail($id);
+
+        if (filled($product->external_source)) {
+            return $this->backToVariations($product)->withErrors([
+                'attach' => "This product is imported from {$product->external_source}. Supplier plans can only be gathered into a product you created.",
+            ]);
+        }
+
+        $data = $request->validate([
+            'variation_ids' => ['required', 'array', 'max:100'],
+            'variation_ids.*' => ['integer'],
+        ], ['variation_ids.required' => 'Pick at least one supplier plan to add.']);
+
+        $variations = $this->attachableQuery($product)->whereIn('id', $data['variation_ids'])->get();
+
+        if ($variations->count() !== count(array_unique($data['variation_ids']))) {
+            return $this->backToVariations($product)->withErrors([
+                'attach' => 'Some of the picked plans can no longer be added here (already moved, or a different product type). Search again.',
+            ]);
+        }
+
+        try {
+            DB::transaction(function () use ($variations, $product) {
+                foreach ($variations as $variation) {
+                    $variation->product_id = $product->id;
+                    $variation->save();
+                }
+            });
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return $this->backToVariations($product)->withErrors(['attach' => collect($e->errors())->flatten()->first()]);
+        }
+
+        return $this->backToVariations($product)
+            ->with('success', $variations->count() . ' supplier plan(s) added. Their cost and stock keep following the supplier.');
+    }
+
+    /**
+     * "Send back": return a supplier variation gathered here to its own supplier
+     * product. Moved straight back when that product still exists (the observer
+     * clears the lock on a move home); otherwise the lock is cleared and the next
+     * catalog sync rebuilds its product.
+     *
+     * PUT under /products: the Products `edit` right.
+     */
+    public function releaseVariation($id, $variation)
+    {
+        $product = Product::withoutGlobalScope('cms_draft_flag')->findOrFail($id);
+        $row = ProductsVariation::withoutGlobalScope('cms_draft_flag')
+            ->where('product_id', $product->id)
+            ->where('manual_product', 1)
+            ->findOrFail($variation);
+
+        $home = Product::withoutGlobalScope('cms_draft_flag')
+            ->where('external_source', $row->supplierSource())
+            ->where('external_id', $row->external_id)
+            ->first();
+
+        if ($home) {
+            $row->product_id = $home->id;
+        } else {
+            $row->manual_product = false;
+        }
+        $row->save();
+
+        return $this->backToVariations($product)->with('success', $home
+            ? 'Sent back to its own supplier product.'
+            : 'Released. The next supplier sync (within the hour) returns it to its own product.');
+    }
+
+    /** Supplier variations still under their own supplier product, of this product's type. */
+    private function attachableQuery(Product $product)
+    {
+        return ProductsVariation::withoutGlobalScope('cms_draft_flag')
+            ->whereNotNull('external_id')
+            ->where('product_id', '!=', $product->id)
+            ->whereHas('product', fn ($q) => $q->withoutGlobalScope('cms_draft_flag')
+                ->whereNotNull('external_source')
+                ->where('product_type_id', $product->product_type_id));
     }
 
     private function backToVariations(Product $product)

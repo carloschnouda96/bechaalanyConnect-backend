@@ -103,6 +103,11 @@
                                     @if ($row['supplier_status'] && $row['supplier_status'] !== 'available')
                                         <span class="badge badge-warning">{{ str_replace('_', ' ', $row['supplier_status']) }}</span>
                                     @endif
+                                    @if ($row['locked'])
+                                        {{-- Its own form sits after the prices form: forms cannot nest. --}}
+                                        <button type="submit" form="pe-release-{{ $row['id'] }}" class="btn btn-link btn-sm p-0 ml-1 align-baseline"
+                                                title="Return this plan to its own supplier product">Send back</button>
+                                    @endif
                                 </td>
                                 <td class="text-right">{{ $row['cost'] === null ? '—' : $fmt($row['cost']) }}</td>
                                 @foreach ($row['cells'] as $column => $cell)
@@ -117,7 +122,56 @@
             <button type="submit" class="btn btn-primary btn-sm pm-save" disabled>Save prices</button>
             <span class="text-muted ml-2 pm-dirty-count">No unsaved changes</span>
         </form>
+
+        @foreach ($rows->where('locked', true) as $row)
+            <form method="post" action="{{ url($prefix . '/products/' . $product->id . '/variations/' . $row['id'] . '/release') }}"
+                  id="pe-release-{{ $row['id'] }}" class="d-none"
+                  onsubmit="return confirm('Send this plan back to its own supplier product?');">
+                @csrf
+                <input type="hidden" name="_method" value="PUT">
+            </form>
+        @endforeach
     @endif
+
+    @unless ($isSupplier)
+        <hr>
+        <p class="font-weight-bold mb-1">Add supplier plans</p>
+        <p class="text-muted small mb-2">
+            Gather imported supplier items into this product, so the storefront shows them as one product with a plan
+            dropdown (e.g. every "YouTube …" item under one "YouTube" product). Their cost, price and stock keep following
+            the supplier, and their old separate products disappear from the storefront. Only items of this product's
+            type are offered.
+        </p>
+        <form method="post" action="{{ url($prefix . '/products/' . $product->id . '/variations/attach') }}" class="form-row align-items-end">
+            @csrf
+            <input type="hidden" name="_method" value="PUT">
+            <div class="form-group col-md-8 mb-2">
+                <select name="variation_ids[]" id="pe-attach" class="form-control regular-select" multiple
+                        data-url="{{ url($prefix . '/products/' . $product->id . '/attachable-variations') }}"></select>
+            </div>
+            <div class="form-group col-md-2 mb-2">
+                <button type="submit" class="btn btn-primary btn-sm">Add to this product</button>
+            </div>
+        </form>
+        <script>
+            window.addEventListener('load', function () {
+                var el = window.jQuery && window.jQuery('#pe-attach');
+                if (!el || !el.length || !el.select2) return;
+                el.select2({
+                    width: '100%',
+                    placeholder: 'Search supplier items, e.g. youtube',
+                    minimumInputLength: 2,
+                    ajax: {
+                        url: el.data('url'),
+                        dataType: 'json',
+                        delay: 250,
+                        data: function (params) { return { q: params.term }; },
+                        processResults: function (data) { return data; }
+                    }
+                });
+            });
+        </script>
+    @endunless
 
     @unless ($isSupplier)
         <hr>
